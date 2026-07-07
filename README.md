@@ -6,7 +6,23 @@ This project demonstrates how AI can be integrated into a real business process 
 
 ## Working Application
 
-The screenshot below shows a live opportunity record after the Message Quality Review Worker has reviewed and improved the sponsorship outreach. The Director can inspect the researched decision-maker, review AI quality-control notes and risk flags, edit the final message, and approve controlled test delivery.
+The screenshots below show the workflow moving through distinct AI workers and human approval gates.
+
+### 1. Prospect Research Worker
+
+The system researches a real sponsorship prospect, identifies a decision-maker, provides contact details, explains why the contact is relevant, and preserves supporting sources before asking the Director to approve the opportunity.
+
+![Prospect Research Worker](docs/screenshots/prospect-research-worker.png)
+
+### 2. Outreach Ready for Review
+
+After the Director approves the opportunity, the system saves the record to the pipeline, prepares outreach, and blocks live sending until the message has been quality reviewed.
+
+![Outreach Ready for Review](docs/screenshots/outreach-ready-for-review.png)
+
+### 3. Message Quality Review Worker
+
+The Message Quality Review Worker improves the draft, documents review notes and risk flags, and leaves the Director in control of the final message before test or live delivery.
 
 ![Message Quality Review Worker](docs/screenshots/message-quality-review.png)
 
