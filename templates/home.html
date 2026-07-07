@@ -1,11 +1,25 @@
-{% extends "base.html" %}{% block content %}
+{% extends "base.html" %}
+
+{% block content %}
 <div class="hero p-5 rounded-4">
-<div class="eyebrow">ACTIVE INITIATIVE</div>
-<h1>2026 Ms. Full-Figured North Carolina Pageant</h1>
-<p>The Coordinator researches contacts, saves approved opportunities permanently, and moves them through the sponsorship pipeline.</p>
-<div class="action-card"><strong>Next Best Action:</strong> Choose a category to research a prospect, or open the pipeline to continue existing work.</div>
-<div class="row g-3 mt-2">
-<div class="col-md-4"><a class="work-card" href="{{ url_for('prospects',category='healthcare') }}"><strong>Healthcare & Wellness</strong><span>Research →</span></a></div>
-<div class="col-md-4"><a class="work-card" href="{{ url_for('prospects',category='automotive') }}"><strong>Automotive</strong><span>Research →</span></a></div>
-<div class="col-md-4"><a class="work-card" href="{{ url_for('show_pipeline') }}"><strong>Pipeline</strong><span>{{ count }} saved →</span></a></div>
-</div></div>{% endblock %}
+  <div class="eyebrow">CUSTOMER ZERO</div>
+
+  <h1>Your Sponsorship Coordinator is ready to work.</h1>
+
+  <p class="lead">
+    I already know your organization. I need four details about the current initiative.
+    Then I will build the workspace and prospect pipeline.
+  </p>
+
+  <div class="known-card mt-4">
+    <strong>I already know:</strong><br>
+    Ms. Full-Figured North Carolina Pageant · Durham, North Carolina<br>
+    Empower, Inspire, and Serve through confidence, leadership, community service,
+    personal growth, and sisterhood.
+  </div>
+
+  <a class="btn btn-gold btn-lg mt-4" href="{{ url_for('prospects', category='automotive') }}">
+    Start Current Sponsorship Initiative
+  </a>
+</div>
+{% endblock %}
