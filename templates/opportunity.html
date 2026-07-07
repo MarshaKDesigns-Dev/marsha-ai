@@ -1,0 +1,102 @@
+{% extends "base.html" %}{% block content %}
+<a href="{{ url_for('show_pipeline') }}">← Back to pipeline</a>
+
+{% if test_mode %}
+<div class="alert alert-warning mt-4">
+<strong>TEST MODE</strong> — No message will be sent to the prospect. Actual delivery is redirected to <strong>{{ test_email }}</strong>.
+</div>
+{% else %}
+<div class="alert alert-danger mt-4"><strong>LIVE MODE</strong> — Messages will be sent to real prospect contacts.</div>
+{% endif %}
+
+<div class="eyebrow mt-4">OPPORTUNITY RECORD</div>
+<h1>{{ opp.recommended_target }}</h1>
+<p>Parent Prospect: {{ opp.parent_prospect }}</p>
+
+<div class="row g-4">
+<div class="col-lg-5">
+<div class="card p-4 mb-4">
+<h2>Decision-Maker</h2>
+<p><strong>{{ opp.contact_name or 'No named contact' }}</strong><br>{{ opp.title or '' }}</p>
+<p><strong>Prospect Email:</strong> {{ opp.email or 'Not available' }}<br><strong>Phone:</strong> {{ opp.phone or 'Not available' }}</p>
+{% if test_mode %}<p><strong>Actual Test Delivery:</strong> {{ test_email }}</p>{% endif %}
+<p><strong>Confidence:</strong> {{ opp.confidence }}<br><strong>Verified:</strong> {{ opp.verified_date }}</p>
+<p>{{ opp.why_this_contact }}</p>
+</div>
+
+<div class="card p-4">
+<h2>Opportunity Status</h2>
+<form method="post" action="{{ url_for('update_opportunity',opportunity_id=opp.id) }}">
+<label class="form-label fw-bold">Stage</label>
+<select class="form-select mb-3" name="stage">{% for stage in stages %}<option {% if stage==opp.stage %}selected{% endif %}>{{ stage }}</option>{% endfor %}</select>
+<label class="form-label fw-bold">Follow-Up Date</label>
+<input class="form-control mb-3" type="date" name="follow_up_date" value="{{ opp.follow_up_date or '' }}">
+<label class="form-label fw-bold">Notes</label>
+<textarea class="form-control mb-3" name="notes" rows="5">{{ opp.notes or '' }}</textarea>
+<button class="btn btn-outline-dark w-100">Save Opportunity Update</button>
+</form>
+</div>
+</div>
+
+<div class="col-lg-7">
+<div class="card p-4">
+<div class="eyebrow">OUTREACH EXECUTION WORKER</div>
+<h2>{{ opp.stage }}</h2>
+
+{% if opp.stage == 'Ready to Send' %}
+{% if opp.message_reviewed_at %}
+<div class="alert alert-success">
+<strong>Message reviewed.</strong> This version has passed the Message Quality Review Worker.
+</div>
+{% if review_notes %}
+<div class="action-card mb-3">
+<strong>Review Notes:</strong><br>
+{{ review_notes.review_notes }}<br>
+{% if review_notes.risk_flags %}
+<strong>Risk Flags:</strong>
+<ul class="mb-0">{% for flag in review_notes.risk_flags %}<li>{{ flag }}</li>{% endfor %}</ul>
+{% endif %}
+</div>
+{% endif %}
+{% else %}
+<div class="alert alert-warning">
+<strong>Message has not been quality reviewed yet.</strong> Review it before sending a real prospect message.
+</div>
+{% endif %}
+
+<form method="post" action="{{ url_for('review_message',opportunity_id=opp.id) }}" class="mb-3">
+<label class="form-label fw-bold">To</label>
+<input class="form-control mb-3" value="{{ test_email if test_mode else opp.email }}" readonly>
+
+<label class="form-label fw-bold">Subject</label>
+<input class="form-control mb-3" name="subject" value="{{ default_subject }}" required>
+
+<label class="form-label fw-bold">Message</label>
+<textarea class="form-control mb-3" name="message" rows="18" required>{{ display_message }}</textarea>
+
+<button class="btn btn-outline-dark w-100">Run Message Quality Review</button>
+</form>
+
+<form method="post" action="{{ url_for('send_email',opportunity_id=opp.id) }}">
+<input type="hidden" name="subject" value="{{ default_subject }}">
+<textarea name="message" hidden>{{ display_message }}</textarea>
+<button class="btn btn-gold w-100 mb-3">
+{% if test_mode %}Send Test Email{% else %}Send Live Email{% endif %}
+</button>
+</form>
+
+<form method="post" action="{{ url_for('mark_sent',opportunity_id=opp.id) }}">
+<button class="btn btn-outline-dark w-100">I Sent It Another Way</button>
+</form>
+{% else %}
+<div class="action-card">
+<strong>Delivery Mode:</strong> {{ opp.delivery_mode or 'External/manual' }}<br>
+<strong>Delivered To:</strong> {{ opp.delivery_recipient or 'Not recorded' }}<br>
+<strong>Sent:</strong> {{ opp.sent_date or 'Not recorded' }}<br>
+<strong>Follow-Up:</strong> {{ opp.follow_up_date or 'Not scheduled' }}
+</div>
+{% endif %}
+</div>
+</div>
+</div>
+{% endblock %}

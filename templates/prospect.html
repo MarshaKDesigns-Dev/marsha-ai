@@ -1,0 +1,38 @@
+{% extends "base.html" %}{% block content %}
+<a href="{{ url_for('prospects',category=category) }}">← Back to prospects</a>
+<div class="eyebrow mt-4">PROSPECT WORKSPACE</div><h1>{{ p.name }}</h1>
+<div class="row g-4">
+<div class="col-lg-5"><div class="card p-4">
+<h2>Contact Research Worker</h2>
+{% if not contact %}
+<p>The Coordinator has not researched the decision-maker yet.</p>
+<form method="post"><button class="btn btn-gold btn-lg w-100">Research Contact Now</button></form>
+{% else %}
+<p><strong>Parent Prospect:</strong> {{ p.name }}</p>
+<p><strong>Recommended Local Target:</strong> {{ contact.recommended_target or p.name }}</p>
+<p><strong>Decision-Maker:</strong> {{ contact.contact_name or 'No verified individual found' }}</p>
+<p><strong>Title:</strong> {{ contact.title or 'Not publicly verified' }}</p>
+<p><strong>Department:</strong> {{ contact.department or 'Not publicly verified' }}</p>
+<p><strong>Email:</strong> {{ contact.email or 'Not publicly available' }}</p>
+<p><strong>Phone:</strong> {{ contact.phone or 'Not publicly available' }}</p>
+<p><strong>Why this contact:</strong> {{ contact.why_this_contact }}</p>
+<p><strong>Confidence:</strong> {{ contact.confidence }}</p>
+<p><strong>Verified:</strong> {{ contact.verified_date }}</p>
+<h3 class="h5 mt-4">Sources</h3>
+{% for s in contact.sources %}<p class="mb-1"><a href="{{ s.url }}" target="_blank">{{ s.label }}</a></p>{% endfor %}
+{% endif %}
+</div></div>
+<div class="col-lg-7"><div class="card p-4">
+{% if outreach %}
+<div class="eyebrow">PERSONALIZED OUTREACH</div><h2>Ready for Director Approval</h2>
+<pre class="message">{{ outreach }}</pre>
+<button class="btn btn-gold" onclick="navigator.clipboard.writeText(document.querySelector('.message').innerText)">Copy Message</button>
+<form method="post" action="{{ url_for('approve',category=category,index=index) }}" class="mt-3">
+<input type="hidden" name="contact_json" value='{{ contact|tojson }}'>
+<textarea name="outreach" hidden>{{ outreach }}</textarea>
+<button class="btn btn-dark w-100">Approve and Save Opportunity</button>
+</form>
+{% else %}
+<div class="empty-state"><h2>Outreach is waiting.</h2><p>The Coordinator will not draft correspondence until it has researched the correct contact path.</p></div>
+{% endif %}
+</div></div></div>{% endblock %}

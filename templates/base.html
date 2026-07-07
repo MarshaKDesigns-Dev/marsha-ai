@@ -1,0 +1,15 @@
+<!doctype html><html lang="en"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>{% block title %}Sponsorship Coordinator{% endblock %}</title>
+<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+<link rel="stylesheet" href="{{ url_for('static',filename='style.css') }}">
+</head><body>
+<nav class="navbar navbar-dark"><div class="container">
+<a class="navbar-brand fw-bold" href="{{ url_for('home') }}">Marsha AI · Sponsorship Coordinator</a>
+<a class="text-white text-decoration-none" href="{{ url_for('show_pipeline') }}">Pipeline</a>
+</div></nav>
+<main class="container py-4">
+{% with messages=get_flashed_messages(with_categories=true) %}{% for c,m in messages %}
+<div class="alert alert-{{ 'success' if c=='success' else 'warning' }}">{{ m }}</div>
+{% endfor %}{% endwith %}
+{% block content %}{% endblock %}</main></body></html>
