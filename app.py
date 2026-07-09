@@ -72,7 +72,8 @@ STAGES = ["Ready to Send", "Sent", "Follow-Up Due", "Responded", "Meeting", "Pro
 
 TEST_MODE = os.getenv("TEST_MODE", "true").lower() == "true"
 TEST_EMAIL = os.getenv("TEST_EMAIL", "")
-DIRECTOR_NAME = os.getenv("DIRECTOR_NAME", "Director Name")
+SENDER_NAME = os.getenv("SENDER_NAME", "Organization Representative")
+SENDER_TITLE = os.getenv("SENDER_TITLE", "Organization Representative")
 SMTP_EMAIL = os.getenv("SMTP_EMAIL", "")
 SMTP_APP_PASSWORD = os.getenv("SMTP_APP_PASSWORD", "")
 
@@ -97,6 +98,7 @@ class ResearchRecord(db.Model):
     sources_json = db.Column(db.Text, default="[]")
 
     outreach = db.Column(db.Text)
+    outreach_channel = db.Column(db.String(50))
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
@@ -113,6 +115,7 @@ class Opportunity(db.Model):
     recommended_target = db.Column(db.String(200))
     category = db.Column(db.String(100))
     score = db.Column(db.Integer)
+
     contact_name = db.Column(db.String(200))
     title = db.Column(db.String(200))
     department = db.Column(db.String(250))
@@ -120,23 +123,34 @@ class Opportunity(db.Model):
     phone = db.Column(db.String(100))
     contact_url = db.Column(db.Text)
     linkedin_url = db.Column(db.Text)
+
     why_this_contact = db.Column(db.Text)
     confidence = db.Column(db.String(100))
     verified_date = db.Column(db.String(50))
     sources_json = db.Column(db.Text, default="[]")
+
     outreach = db.Column(db.Text)
+    outreach_channel = db.Column(db.String(50))
+
     stage = db.Column(db.String(50), default="Ready to Send")
     sent_date = db.Column(db.Date)
     follow_up_date = db.Column(db.Date)
     notes = db.Column(db.Text)
+
     subject = db.Column(db.String(300))
     delivery_recipient = db.Column(db.String(250))
     delivery_mode = db.Column(db.String(50))
+
     reviewed_message = db.Column(db.Text)
     message_review_notes = db.Column(db.Text)
     message_reviewed_at = db.Column(db.DateTime)
+
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
-    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    updated_at = db.Column(
+        db.DateTime,
+        default=datetime.utcnow,
+        onupdate=datetime.utcnow
+    )
 
     @property
     def sources(self):
@@ -202,33 +216,158 @@ why_this_contact, confidence, verified_date, sources, recommended_next_action.
 
 
 def draft_outreach(prospect, contact):
-    greeting = contact.get("contact_name") or contact.get("department") or "Community Partnerships Team"
-    target = contact.get("recommended_target") or prospect["name"]
+    c = client()
 
-    return f"""Hello {greeting},
+    if not c:
+        return "OPENAI_API_KEY is not configured. Outreach could not be drafted."
 
-I’m reaching out on behalf of {ORG['name']} in Durham. We are currently seeking partners for the 2026 Ms. Full-Figured North Carolina Pageant and identified {target} because {prospect['fit'].lower()}
+    prompt = f"""
+You are the Outreach Drafting Worker for Marsha AI's Sponsorship Coordinator.
 
-Our platform is built around confidence, leadership, community service, and meaningful visibility for full-figured women. I believe the strongest opening would be a {prospect['angle'].lower()}
+Your job is to turn verified contact research into clean, recipient-facing outreach.
 
-Rather than send a generic sponsorship package, I would value a short conversation to understand what matters most to your organization and determine whether there is a partnership worth building.
+Organization:
+{ORG['name']}
+Location: {ORG['location']}
+Mission: {ORG['mission']}
 
-Would you be open to a 20-minute conversation next week?
+Sender:
+Name: {SENDER_NAME}
+Title: {SENDER_TITLE}
 
-Best,
-[Director Name]
-{ORG['name']}"""
+Prospect:
+Name: {prospect['name']}
+Category: {prospect['category']}
+Fit: {prospect['fit']}
+Recommended sponsorship angle: {prospect['angle']}
 
+Contact research:
+Recommended target: {contact.get('recommended_target')}
+Contact name: {contact.get('contact_name')}
+Title: {contact.get('title')}
+Department: {contact.get('department')}
+Email: {contact.get('email')}
+Phone: {contact.get('phone')}
+Why this contact: {contact.get('why_this_contact')}
+
+Rules:
+- Write only the outreach message.
+- Do not include internal labels such as primary, secondary, local route, corporate route, recommended target, or contact research.
+- Do not expose research notes or source language.
+- If no named person is verified, use a natural role-based greeting.
+- If the only verified route is phone, write a short call script instead of an email.
+- If an email is available, write a concise email.
+- Do not invent facts.
+- Do not overpromise benefits.
+- Keep the tone professional, specific, and human.
+- End with the sender name, sender title, and organization name.
+"""
+
+    try:
+        response = c.responses.create(
+            model="gpt-5-mini",
+            input=prompt
+        )
+        return response.output_text.strip()
+    except Exception as e:
+        return f"Outreach drafting failed: {str(e)}"
+
+def determine_outreach_channel(contact):
+    if contact.get("email"):
+        return "email"
+
+    if contact.get("phone"):
+        return "phone"
+
+    if contact.get("contact_url"):
+        return "contact_form"
+
+    return "unknown"
 
 def review_message_quality(opp, subject, message):
     c = client()
     if not c:
         return {"error": "OPENAI_API_KEY is not configured."}
 
-    prompt = f"""
+    channel = opp.outreach_channel or "email"
+
+    if channel == "phone":
+        prompt = f"""
 You are the Message Quality Review Worker for Marsha AI's Sponsorship Coordinator.
 
-Your job is to improve a sponsorship outreach email before the Director sends it.
+Your job is to improve a sponsorship phone call script before the user contacts the prospect.
+
+Organization:
+{ORG['name']}
+Location: {ORG['location']}
+Mission: {ORG['mission']}
+
+Opportunity:
+Parent prospect: {opp.parent_prospect}
+Recommended local target: {opp.recommended_target}
+Decision-maker: {opp.contact_name}
+Title: {opp.title}
+Category: {opp.category}
+Reason this contact was selected: {opp.why_this_contact}
+Verified phone number: {opp.phone}
+
+Current call script:
+{message}
+
+Rules:
+- Do not invent new facts.
+- Do not overpromise sponsorship benefits.
+- Do not claim an existing relationship unless stated.
+- Make the script sound natural when spoken aloud.
+- Keep it concise, respectful, and specific.
+- Make parent company vs local target clear.
+- Include a clear reason for the call.
+- Include a simple next step.
+- Return only JSON with keys:
+improved_subject, improved_message, review_notes, risk_flags.
+- For phone scripts, improved_subject should be an empty string.
+- risk_flags must be a list.
+"""
+    elif channel == "contact_form":
+        prompt = f"""
+You are the Message Quality Review Worker for Marsha AI's Sponsorship Coordinator.
+
+Your job is to improve a sponsorship contact-form message before the user submits it.
+
+Organization:
+{ORG['name']}
+Location: {ORG['location']}
+Mission: {ORG['mission']}
+
+Opportunity:
+Parent prospect: {opp.parent_prospect}
+Recommended local target: {opp.recommended_target}
+Decision-maker: {opp.contact_name}
+Title: {opp.title}
+Category: {opp.category}
+Reason this contact was selected: {opp.why_this_contact}
+Contact form URL: {opp.contact_url}
+
+Current message:
+{message}
+
+Rules:
+- Do not invent new facts.
+- Do not overpromise sponsorship benefits.
+- Do not claim an existing relationship unless stated.
+- Keep the message short enough for a contact form.
+- Make the request clear.
+- Include a simple next step.
+- Return only JSON with keys:
+improved_subject, improved_message, review_notes, risk_flags.
+- For contact forms, improved_subject should be an empty string.
+- risk_flags must be a list.
+"""
+    else:
+        prompt = f"""
+You are the Message Quality Review Worker for Marsha AI's Sponsorship Coordinator.
+
+Your job is to improve a sponsorship outreach email before the user sends it.
 
 Organization:
 {ORG['name']}
@@ -259,7 +398,7 @@ Rules:
 - Keep the tone professional and human.
 - Return only JSON with keys:
 improved_subject, improved_message, review_notes, risk_flags.
-risk_flags must be a list.
+- risk_flags must be a list.
 """
 
     try:
@@ -273,7 +412,6 @@ risk_flags must be a list.
         return json.loads(text)
     except Exception as e:
         return {"error": f"Message quality review failed: {str(e)}"}
-
 
 @app.route("/")
 def home():
@@ -419,6 +557,29 @@ def prospect(category, index):
         contact=contact,
         outreach=outreach
     )
+def validate_outreach_readiness(contact, outreach):
+    errors = []
+
+    has_email = bool(contact.get("email"))
+    has_phone = bool(contact.get("phone"))
+    has_contact_url = bool(contact.get("contact_url"))
+
+    if not has_email and not has_phone and not has_contact_url:
+        errors.append("No usable delivery route was found.")
+
+    if not outreach or not outreach.strip():
+        errors.append("No outreach message was generated.")
+
+    if outreach and "[Director Name]" in outreach:
+        errors.append("The outreach message still contains [Director Name].")
+
+    if outreach and "Primary:" in outreach:
+        errors.append("Internal research labels are appearing in the outreach message.")
+
+    if not contact.get("sources"):
+        errors.append("No research sources were saved.")
+
+    return errors
 
 @app.route("/approve/<category>/<int:index>", methods=["POST"])
 def approve(category, index):
@@ -455,6 +616,15 @@ def approve(category, index):
     else:
         flash("Contact research must be completed before approval.", "warning")
         return redirect(url_for("prospect", category=category, index=index))
+    
+    readiness_errors = validate_outreach_readiness(contact, outreach)
+
+    if readiness_errors:
+        for error in readiness_errors:
+            flash(error, "warning")
+
+        flash("This opportunity is not ready to approve yet.", "warning")
+        return redirect(url_for("prospect", category=category, index=index))
 
     existing = Opportunity.query.filter_by(
         parent_prospect=p["name"],
@@ -482,6 +652,7 @@ def approve(category, index):
         verified_date=contact.get("verified_date"),
         sources_json=json.dumps(contact.get("sources") or []),
         outreach=outreach,
+        outreach_channel=determine_outreach_channel(contact),
         stage="Ready to Send"
     )
 
@@ -503,7 +674,7 @@ def opportunity_detail(opportunity_id):
     opp = Opportunity.query.get_or_404(opportunity_id)
 
     default_subject = opp.subject or f"Potential partnership with {ORG['name']}"
-    display_message = (opp.reviewed_message or opp.outreach or "").replace("[Director Name]", DIRECTOR_NAME)
+    display_message = (opp.reviewed_message or opp.outreach or "").replace("[Director Name]", SENDER_NAME)
 
     review_notes = None
     if opp.message_review_notes:
@@ -528,14 +699,21 @@ def opportunity_detail(opportunity_id):
 def review_message(opportunity_id):
     opp = Opportunity.query.get_or_404(opportunity_id)
 
+    channel = opp.outreach_channel or "email"
+
     subject = request.form.get("subject", "").strip()
     message = request.form.get("message", "").strip()
 
-    if not subject or not message:
+    if channel == "email" and (not subject or not message):
         flash("Subject and message are required before review.", "warning")
         return redirect(url_for("opportunity_detail", opportunity_id=opp.id))
 
+    if channel != "email" and not message:
+        flash("Call script is required before review.", "warning")
+        return redirect(url_for("opportunity_detail", opportunity_id=opp.id))
+
     result = review_message_quality(opp, subject, message)
+
     if result.get("error"):
         flash(result["error"], "warning")
         return redirect(url_for("opportunity_detail", opportunity_id=opp.id))
@@ -554,13 +732,16 @@ def review_message(opportunity_id):
     flash("Message quality review completed. Review the improved version before sending.", "success")
     return redirect(url_for("opportunity_detail", opportunity_id=opp.id))
 
-
 @app.route("/opportunity/<int:opportunity_id>/send-email", methods=["POST"])
 def send_email(opportunity_id):
     opp = Opportunity.query.get_or_404(opportunity_id)
 
-    subject = request.form.get("subject", "").strip()
-    message = request.form.get("message", "").strip()
+    if not opp.message_reviewed_at:
+        flash("Review the message before sending email.", "warning")
+        return redirect(url_for("opportunity_detail", opportunity_id=opp.id))
+
+    subject = (opp.subject or "").strip()
+    message = (opp.reviewed_message or opp.outreach or "").strip()
 
     if not subject or not message:
         flash("Subject and message are required.", "warning")
@@ -610,20 +791,44 @@ def send_email(opportunity_id):
     flash(f"{delivery_mode} email sent to {recipient}. Follow-up scheduled for 7 days from today.", "success")
     return redirect(url_for("opportunity_detail", opportunity_id=opp.id))
 
-
 @app.route("/opportunity/<int:opportunity_id>/mark-sent", methods=["POST"])
 def mark_sent(opportunity_id):
     opp = Opportunity.query.get_or_404(opportunity_id)
+
+    if not opp.message_reviewed_at:
+        if opp.outreach_channel == "phone":
+            flash("Review the call script before marking the call complete.", "warning")
+        elif opp.outreach_channel == "contact_form":
+            flash("Review the contact-form message before marking it submitted.", "warning")
+        else:
+            flash("Review the message before marking outreach as sent.", "warning")
+
+        return redirect(url_for("opportunity_detail", opportunity_id=opp.id))
 
     opp.stage = "Sent"
     opp.sent_date = date.today()
     opp.follow_up_date = date.today() + timedelta(days=7)
 
+    if opp.outreach_channel == "phone":
+        opp.delivery_mode = "PHONE"
+        opp.delivery_recipient = opp.phone
+    elif opp.outreach_channel == "contact_form":
+        opp.delivery_mode = "CONTACT_FORM"
+        opp.delivery_recipient = opp.contact_url
+    else:
+        opp.delivery_mode = "External/manual"
+        opp.delivery_recipient = opp.email
+
     db.session.commit()
 
-    flash("Outreach marked as sent. Follow-up scheduled for 7 days from today.", "success")
-    return redirect(url_for("opportunity_detail", opportunity_id=opp.id))
+    if opp.outreach_channel == "phone":
+        flash("Call marked complete. Follow-up scheduled for 7 days from today.", "success")
+    elif opp.outreach_channel == "contact_form":
+        flash("Contact form marked submitted. Follow-up scheduled for 7 days from today.", "success")
+    else:
+        flash("Outreach marked as sent. Follow-up scheduled for 7 days from today.", "success")
 
+    return redirect(url_for("opportunity_detail", opportunity_id=opp.id))
 
 @app.route("/opportunity/<int:opportunity_id>/update", methods=["POST"])
 def update_opportunity(opportunity_id):
