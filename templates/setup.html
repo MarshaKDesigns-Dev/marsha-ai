@@ -1,0 +1,179 @@
+{% extends "base.html" %}
+
+{% block content %}
+
+<div class="eyebrow">CLIENT ONBOARDING</div>
+<h1>Organization & Sponsorship Initiative Setup</h1>
+
+<p class="mb-4">
+    This information becomes the operating context used by the Sponsorship
+    Coordinator when researching prospects, drafting outreach, reviewing
+    messages, and generating follow-ups.
+</p>
+
+<form method="post">
+    <div class="row g-4">
+
+        <div class="col-lg-6">
+            <div class="card p-4 h-100">
+                <div class="eyebrow">ORGANIZATION PROFILE</div>
+                <h2>Organization</h2>
+
+                <label class="form-label fw-bold">Organization Name</label>
+                <input
+                    class="form-control mb-3"
+                    name="organization_name"
+                    value="{{ organization.name if organization else '' }}"
+                    required
+                >
+
+                <label class="form-label fw-bold">Organization Type</label>
+                <input
+                    class="form-control mb-3"
+                    name="organization_type"
+                    placeholder="Nonprofit, pageant, association, foundation..."
+                    value="{{ organization.organization_type if organization else '' }}"
+                >
+
+                <div class="row">
+                    <div class="col-md-7">
+                        <label class="form-label fw-bold">City</label>
+                        <input
+                            class="form-control mb-3"
+                            name="city"
+                            value="{{ organization.city if organization else '' }}"
+                        >
+                    </div>
+
+                    <div class="col-md-5">
+                        <label class="form-label fw-bold">State</label>
+                        <input
+                            class="form-control mb-3"
+                            name="state"
+                            value="{{ organization.state if organization else '' }}"
+                        >
+                    </div>
+                </div>
+
+                <label class="form-label fw-bold">Mission</label>
+                <textarea
+                    class="form-control mb-3"
+                    name="mission"
+                    rows="6"
+                    required
+                >{{ organization.mission if organization else '' }}</textarea>
+
+                <label class="form-label fw-bold">Website</label>
+                <input
+                    class="form-control mb-3"
+                    type="url"
+                    name="website"
+                    value="{{ organization.website if organization else '' }}"
+                >
+
+                <label class="form-label fw-bold">Organization Phone</label>
+                <input
+                    class="form-control"
+                    name="phone"
+                    value="{{ organization.phone if organization else '' }}"
+                >
+            </div>
+        </div>
+
+        <div class="col-lg-6">
+            <div class="card p-4 h-100">
+                <div class="eyebrow">OUTREACH IDENTITY</div>
+                <h2>Sender</h2>
+
+                <label class="form-label fw-bold">Sender Name</label>
+                <input
+                    class="form-control mb-3"
+                    name="sender_name"
+                    value="{{ organization.sender_name if organization else '' }}"
+                    required
+                >
+
+                <label class="form-label fw-bold">Sender Title</label>
+                <input
+                    class="form-control mb-3"
+                    name="sender_title"
+                    value="{{ organization.sender_title if organization else '' }}"
+                    required
+                >
+
+                <label class="form-label fw-bold">Sender Email</label>
+                <input
+                    class="form-control"
+                    type="email"
+                    name="sender_email"
+                    value="{{ organization.sender_email if organization else '' }}"
+                >
+            </div>
+        </div>
+
+        <div class="col-12">
+            <div class="card p-4">
+                <div class="eyebrow">SPONSORSHIP INITIATIVE</div>
+                <h2>Current Campaign</h2>
+
+                <label class="form-label fw-bold">Initiative Name</label>
+                <input
+                    class="form-control mb-3"
+                    name="initiative_name"
+                    value="{{ initiative.name if initiative else '' }}"
+                    required
+                >
+
+                <div class="row">
+                    <div class="col-lg-7">
+                        <label class="form-label fw-bold">Fundraising Target</label>
+                        <input
+                            class="form-control mb-3"
+                            name="fundraising_target"
+                            placeholder="$25,000 cash + $10,000 in-kind"
+                            value="{{ initiative.fundraising_target if initiative else '' }}"
+                        >
+                    </div>
+
+                    <div class="col-lg-5">
+                        <label class="form-label fw-bold">Deadline</label>
+                        <input
+                            class="form-control mb-3"
+                            type="date"
+                            name="deadline"
+                            value="{{ initiative.deadline.isoformat() if initiative and initiative.deadline else '' }}"
+                        >
+                    </div>
+                </div>
+
+                <label class="form-label fw-bold">Audience</label>
+                <textarea
+                    class="form-control mb-3"
+                    name="audience"
+                    rows="4"
+                >{{ initiative.audience if initiative else '' }}</textarea>
+
+                <label class="form-label fw-bold">Sponsorship Needs</label>
+                <textarea
+                    class="form-control mb-3"
+                    name="needs"
+                    rows="5"
+                >{{ initiative.needs if initiative else '' }}</textarea>
+
+                <label class="form-label fw-bold">Campaign Goals</label>
+                <textarea
+                    class="form-control mb-4"
+                    name="goals"
+                    rows="4"
+                >{{ initiative.goals if initiative else '' }}</textarea>
+
+                <button class="btn btn-gold w-100">
+                    Save Organization & Initiative
+                </button>
+            </div>
+        </div>
+
+    </div>
+</form>
+
+{% endblock %}

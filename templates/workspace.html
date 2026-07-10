@@ -1,101 +1,193 @@
 {% extends "base.html" %}
 
 {% block content %}
-<div class="d-flex flex-wrap justify-content-between align-items-start gap-3 mb-4">
-  <div>
-    <div class="eyebrow">ACTIVE INITIATIVE</div>
-    <h1>{{ data.initiative }}</h1>
-    <p class="mb-0">Target: {{ data.target }} by {{ data.deadline }}</p>
-  </div>
 
-  <a class="btn btn-outline-dark" href="{{ url_for('start') }}">Edit Initiative</a>
+<div class="d-flex flex-wrap justify-content-between align-items-start gap-3 mb-4">
+    <div>
+        <div class="eyebrow">ACTIVE INITIATIVE</div>
+        <h1>{{ data.initiative }}</h1>
+        <p class="mb-0">
+            Target: {{ data.target }}
+            {% if data.deadline %}
+                by {{ data.deadline }}
+            {% endif %}
+        </p>
+    </div>
+
+    <a
+        class="btn btn-outline-dark"
+        href="{{ url_for('setup') }}"
+    >
+        Edit Organization & Initiative
+    </a>
 </div>
+
 
 <div class="alert action-card">
-  <strong>Next Best Action:</strong>
-  Open a sponsor category, review actual prospects, approve the strongest opportunities, then work the pipeline.
+    <strong>Next Best Action:</strong>
+    Open a sponsor category, review actual prospects, approve the strongest
+    opportunities, then work the pipeline.
 </div>
+
 
 <div class="row g-3 mb-4">
-  <div class="col-md-4">
-    <div class="metric">
-      <span>Target</span>
-      <strong>{{ data.target }}</strong>
-    </div>
-  </div>
 
-  <div class="col-md-4">
-    <div class="metric">
-      <span>Deadline</span>
-      <strong>{{ data.deadline }}</strong>
+    <div class="col-md-4">
+        <div class="metric">
+            <span>Target</span>
+            <strong>{{ data.target or 'Not set' }}</strong>
+        </div>
     </div>
-  </div>
 
-  <div class="col-md-4">
-    <div class="metric">
-      <span>Pipeline</span>
-      <strong>{{ pipeline|length }} Opportunities</strong>
+    <div class="col-md-4">
+        <div class="metric">
+            <span>Deadline</span>
+            <strong>{{ data.deadline or 'Not set' }}</strong>
+        </div>
     </div>
-  </div>
+
+    <div class="col-md-4">
+        <div class="metric">
+            <span>Pipeline</span>
+            <strong>{{ pipeline|length }} Opportunities</strong>
+        </div>
+    </div>
+
 </div>
+
 
 <div class="card p-4 mb-4">
-  <div class="eyebrow">COORDINATOR'S ASSESSMENT</div>
-  <h2>How I am positioning this opportunity</h2>
-  <p>
-    The Pageant should approach sponsorship as a partnership opportunity centered on confidence,
-    leadership, community service, and authentic storytelling. The current initiative is
-    {{ data.initiative }}.
-  </p>
-  <p><strong>Current funding needs:</strong> {{ data.needs }}</p>
+
+    <div class="eyebrow">COORDINATOR'S ASSESSMENT</div>
+
+    <h2>How I am positioning this opportunity</h2>
+
+    <p>
+        {{ org.name }} should approach sponsorship as a partnership opportunity
+        centered on its mission, audience, and current initiative.
+        The active initiative is {{ data.initiative }}.
+    </p>
+
+    {% if org.mission %}
+        <p>
+            <strong>Organization mission:</strong>
+            {{ org.mission }}
+        </p>
+    {% endif %}
+
+    {% if data.audience %}
+        <p>
+            <strong>Audience and community reach:</strong>
+            {{ data.audience }}
+        </p>
+    {% endif %}
+
+    {% if data.needs %}
+        <p>
+            <strong>Current funding needs:</strong>
+            {{ data.needs }}
+        </p>
+    {% endif %}
+
+    {% if data.goals %}
+        <p class="mb-0">
+            <strong>Campaign goals:</strong>
+            {{ data.goals }}
+        </p>
+    {% endif %}
+
 </div>
+
 
 <div class="card p-4 mb-4">
-  <div class="eyebrow">PROSPECT RESEARCH QUEUE</div>
-  <h2>Open a category to review actual prospects</h2>
 
-  <div class="table-responsive">
-    <table class="table align-middle">
-      <thead>
-        <tr>
-          <th>Priority</th>
-          <th>Category</th>
-          <th>Why it fits</th>
-          <th></th>
-        </tr>
-      </thead>
-      <tbody>
-        {% for c in categories %}
-        <tr>
-          <td><span class="score">{{ c.score }}</span></td>
-          <td><strong>{{ c.category }}</strong></td>
-          <td>{{ c.fit }}</td>
-          <td>
-            <a class="btn btn-sm btn-dark" href="{{ url_for('prospects', category=c.slug) }}">
-              Review Prospects
-            </a>
-          </td>
-        </tr>
-        {% endfor %}
-      </tbody>
-    </table>
-  </div>
+    <div class="eyebrow">PROSPECT RESEARCH QUEUE</div>
+
+    <h2>Open a category to review actual prospects</h2>
+
+    <div class="table-responsive">
+
+        <table class="table align-middle">
+
+            <thead>
+                <tr>
+                    <th>Priority</th>
+                    <th>Category</th>
+                    <th>Why it fits</th>
+                    <th></th>
+                </tr>
+            </thead>
+
+            <tbody>
+
+                {% for c in categories %}
+
+                    <tr>
+                        <td>
+                            <span class="score">{{ c.score }}</span>
+                        </td>
+
+                        <td>
+                            <strong>{{ c.category }}</strong>
+                        </td>
+
+                        <td>
+                            {{ c.fit }}
+                        </td>
+
+                        <td>
+                            <a
+                                class="btn btn-sm btn-dark"
+                                href="{{ url_for('prospects', category=c.slug) }}"
+                            >
+                                Review Prospects
+                            </a>
+                        </td>
+                    </tr>
+
+                {% endfor %}
+
+            </tbody>
+
+        </table>
+
+    </div>
+
 </div>
+
 
 <div class="card p-4">
-  <div class="eyebrow">SELLABLE INVENTORY</div>
-  <h2>What we can offer sponsors</h2>
 
-  <div class="row g-3">
-    {% for a in assets %}
-    <div class="col-md-6">
-      <div class="asset">
-        <strong>{{ a.name }}</strong>
-        <p class="mb-1">{{ a.value }}</p>
-        <small>Capacity: {{ a.capacity }}</small>
-      </div>
+    <div class="eyebrow">SELLABLE INVENTORY</div>
+
+    <h2>What we can offer sponsors</h2>
+
+    <div class="row g-3">
+
+        {% for a in assets %}
+
+            <div class="col-md-6">
+
+                <div class="asset">
+
+                    <strong>{{ a.name }}</strong>
+
+                    <p class="mb-1">
+                        {{ a.value }}
+                    </p>
+
+                    <small>
+                        Capacity: {{ a.capacity }}
+                    </small>
+
+                </div>
+
+            </div>
+
+        {% endfor %}
+
     </div>
-    {% endfor %}
-  </div>
+
 </div>
+
 {% endblock %}

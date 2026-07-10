@@ -14,7 +14,7 @@ app.config["SQLALCHEMY_DATABASE_URI"] = os.getenv("DATABASE_URL", "sqlite:///spo
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 db = SQLAlchemy(app)
 
-ORG = {
+DEFAULT_ORG = {
     "name": "Ms. Full-Figured North Carolina Pageant",
     "location": "Durham, North Carolina",
     "mission": "Empower, Inspire, and Serve through confidence, leadership, community service, personal growth, and sisterhood."
@@ -76,6 +76,62 @@ SENDER_NAME = os.getenv("SENDER_NAME", "Organization Representative")
 SENDER_TITLE = os.getenv("SENDER_TITLE", "Organization Representative")
 SMTP_EMAIL = os.getenv("SMTP_EMAIL", "")
 SMTP_APP_PASSWORD = os.getenv("SMTP_APP_PASSWORD", "")
+
+
+class Organization(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(200), nullable=False)
+    organization_type = db.Column(db.String(100))
+    city = db.Column(db.String(100))
+    state = db.Column(db.String(50))
+    mission = db.Column(db.Text)
+    sender_name = db.Column(db.String(200))
+    sender_title = db.Column(db.String(200))
+    sender_email = db.Column(db.String(250))
+    website = db.Column(db.String(300))
+    phone = db.Column(db.String(100))
+    is_active = db.Column(db.Boolean, default=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(
+        db.DateTime,
+        default=datetime.utcnow,
+        onupdate=datetime.utcnow
+    )
+
+    initiatives = db.relationship(
+        "SponsorshipInitiative",
+        backref="organization",
+        lazy=True,
+        cascade="all, delete-orphan"
+    )
+
+    @property
+    def location(self):
+        parts = [part for part in [self.city, self.state] if part]
+        return ", ".join(parts)
+
+
+class SponsorshipInitiative(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    organization_id = db.Column(
+        db.Integer,
+        db.ForeignKey("organization.id"),
+        nullable=False
+    )
+    name = db.Column(db.String(250), nullable=False)
+    fundraising_target = db.Column(db.String(200))
+    deadline = db.Column(db.Date)
+    audience = db.Column(db.Text)
+    needs = db.Column(db.Text)
+    goals = db.Column(db.Text)
+    status = db.Column(db.String(50), default="Active")
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(
+        db.DateTime,
+        default=datetime.utcnow,
+        onupdate=datetime.utcnow
+    )
+
 
 class ResearchRecord(db.Model):
     id = db.Column(db.Integer, primary_key=True)
@@ -165,6 +221,114 @@ class Opportunity(db.Model):
         except Exception:
             return []
 
+
+def get_active_organization():
+    organization_id = session.get("organization_id")
+
+    if organization_id:
+        organization = db.session.get(Organization, organization_id)
+        if organization:
+            return organization
+
+    organization = Organization.query.filter_by(is_active=True).first()
+
+    if not organization:
+        organization = Organization.query.first()
+
+    if organization:
+        session["organization_id"] = organization.id
+
+    return organization
+
+
+def get_active_initiative():
+    organization = get_active_organization()
+    initiative_id = session.get("initiative_id")
+
+    if initiative_id:
+        initiative = db.session.get(SponsorshipInitiative, initiative_id)
+        if initiative and (
+            not organization or initiative.organization_id == organization.id
+        ):
+            return initiative
+
+    if not organization:
+        return None
+
+    initiative = SponsorshipInitiative.query.filter_by(
+        organization_id=organization.id,
+        status="Active"
+    ).order_by(SponsorshipInitiative.updated_at.desc()).first()
+
+    if not initiative:
+        initiative = SponsorshipInitiative.query.filter_by(
+            organization_id=organization.id
+        ).order_by(SponsorshipInitiative.updated_at.desc()).first()
+
+    if initiative:
+        session["initiative_id"] = initiative.id
+
+    return initiative
+
+
+def get_org_profile():
+    organization = get_active_organization()
+
+    if not organization:
+        return DEFAULT_ORG.copy()
+
+    return {
+        "name": organization.name,
+        "organization_type": organization.organization_type or "",
+        "location": organization.location or DEFAULT_ORG["location"],
+        "mission": organization.mission or DEFAULT_ORG["mission"],
+        "sender_name": organization.sender_name or SENDER_NAME,
+        "sender_title": organization.sender_title or SENDER_TITLE,
+        "sender_email": organization.sender_email or SMTP_EMAIL,
+        "website": organization.website or "",
+        "phone": organization.phone or ""
+    }
+
+
+def get_initiative_profile():
+    initiative = get_active_initiative()
+
+    if not initiative:
+        return {
+            "initiative": "2026 Ms. Full-Figured North Carolina Pageant",
+            "target": "$25,000 cash + $10,000 in-kind",
+            "deadline": "October 1, 2026",
+            "audience": (
+                "Delegates, pageant attendees, families, supporters, local "
+                "community members, social media followers, and women connected "
+                "to confidence, service, and empowerment."
+            ),
+            "needs": (
+                "Venue costs, printing, program book, delegate experiences, "
+                "awards, photography, beauty services, fashion support, "
+                "hospitality, community service support, and event production."
+            ),
+            "goals": ""
+        }
+
+    return {
+        "initiative": initiative.name,
+        "target": initiative.fundraising_target or "",
+        "deadline": initiative.deadline.isoformat() if initiative.deadline else "",
+        "audience": initiative.audience or "",
+        "needs": initiative.needs or "",
+        "goals": initiative.goals or ""
+    }
+
+
+def get_sender_name():
+    return get_org_profile().get("sender_name") or SENDER_NAME
+
+
+def get_sender_title():
+    return get_org_profile().get("sender_title") or SENDER_TITLE
+
+
 def get_prospect_key(category, index):
     return f"{category}:{index}"
 
@@ -182,8 +346,8 @@ def research_contact(prospect):
 You are the Contact Research Worker for a sponsorship coordinator.
 
 Organization seeking sponsorship:
-{ORG['name']} in {ORG['location']}
-Mission: {ORG['mission']}
+{get_org_profile()['name']} in {get_org_profile()['location']}
+Mission: {get_org_profile()['mission']}
 
 Parent prospect:
 Company: {prospect['name']}
@@ -233,13 +397,13 @@ You are the Outreach Drafting Worker for Marsha AI's Sponsorship Coordinator.
 Your job is to turn verified contact research into clean, recipient-facing outreach.
 
 Organization:
-{ORG['name']}
-Location: {ORG['location']}
-Mission: {ORG['mission']}
+{get_org_profile()['name']}
+Location: {get_org_profile()['location']}
+Mission: {get_org_profile()['mission']}
 
 Sender:
-Name: {SENDER_NAME}
-Title: {SENDER_TITLE}
+Name: {get_sender_name()}
+Title: {get_sender_title()}
 
 Prospect:
 Name: {prospect['name']}
@@ -294,13 +458,13 @@ You are the Follow-Up Worker for Marsha AI's Sponsorship Coordinator.
 Create a concise first follow-up for a sponsorship outreach that has not yet received a recorded response.
 
 Organization:
-{ORG['name']}
-Location: {ORG['location']}
-Mission: {ORG['mission']}
+{get_org_profile()['name']}
+Location: {get_org_profile()['location']}
+Mission: {get_org_profile()['mission']}
 
 Sender:
-Name: {SENDER_NAME}
-Title: {SENDER_TITLE}
+Name: {get_sender_name()}
+Title: {get_sender_title()}
 
 Opportunity:
 Parent prospect: {opp.parent_prospect}
@@ -363,9 +527,9 @@ You are the Message Quality Review Worker for Marsha AI's Sponsorship Coordinato
 Review and improve a sponsorship follow-up before the user sends, calls, or submits it.
 
 Organization:
-{ORG['name']}
-Location: {ORG['location']}
-Mission: {ORG['mission']}
+{get_org_profile()['name']}
+Location: {get_org_profile()['location']}
+Mission: {get_org_profile()['mission']}
 
 Opportunity:
 Parent prospect: {opp.parent_prospect}
@@ -439,9 +603,9 @@ You are the Message Quality Review Worker for Marsha AI's Sponsorship Coordinato
 Your job is to improve a sponsorship phone call script before the user contacts the prospect.
 
 Organization:
-{ORG['name']}
-Location: {ORG['location']}
-Mission: {ORG['mission']}
+{get_org_profile()['name']}
+Location: {get_org_profile()['location']}
+Mission: {get_org_profile()['mission']}
 
 Opportunity:
 Parent prospect: {opp.parent_prospect}
@@ -476,9 +640,9 @@ You are the Message Quality Review Worker for Marsha AI's Sponsorship Coordinato
 Your job is to improve a sponsorship contact-form message before the user submits it.
 
 Organization:
-{ORG['name']}
-Location: {ORG['location']}
-Mission: {ORG['mission']}
+{get_org_profile()['name']}
+Location: {get_org_profile()['location']}
+Mission: {get_org_profile()['mission']}
 
 Opportunity:
 Parent prospect: {opp.parent_prospect}
@@ -511,9 +675,9 @@ You are the Message Quality Review Worker for Marsha AI's Sponsorship Coordinato
 Your job is to improve a sponsorship outreach email before the user sends it.
 
 Organization:
-{ORG['name']}
-Location: {ORG['location']}
-Mission: {ORG['mission']}
+{get_org_profile()['name']}
+Location: {get_org_profile()['location']}
+Mission: {get_org_profile()['mission']}
 
 Opportunity:
 Parent prospect: {opp.parent_prospect}
@@ -554,9 +718,104 @@ improved_subject, improved_message, review_notes, risk_flags.
     except Exception as e:
         return {"error": f"Message quality review failed: {str(e)}"}
 
+
+@app.route("/setup", methods=["GET", "POST"])
+def setup():
+    organization = get_active_organization()
+    initiative = get_active_initiative()
+
+    if request.method == "POST":
+        organization_name = request.form.get("organization_name", "").strip()
+        initiative_name = request.form.get("initiative_name", "").strip()
+
+        if not organization_name or not initiative_name:
+            flash(
+                "Organization name and sponsorship initiative name are required.",
+                "warning"
+            )
+            return render_template(
+                "setup.html",
+                organization=organization,
+                initiative=initiative
+            )
+
+        if not organization:
+            organization = Organization()
+            db.session.add(organization)
+
+        organization.name = organization_name
+        organization.organization_type = request.form.get(
+            "organization_type",
+            ""
+        ).strip()
+        organization.city = request.form.get("city", "").strip()
+        organization.state = request.form.get("state", "").strip()
+        organization.mission = request.form.get("mission", "").strip()
+        organization.sender_name = request.form.get(
+            "sender_name",
+            ""
+        ).strip()
+        organization.sender_title = request.form.get(
+            "sender_title",
+            ""
+        ).strip()
+        organization.sender_email = request.form.get(
+            "sender_email",
+            ""
+        ).strip()
+        organization.website = request.form.get("website", "").strip()
+        organization.phone = request.form.get("phone", "").strip()
+        organization.is_active = True
+
+        db.session.flush()
+        session["organization_id"] = organization.id
+
+        if not initiative:
+            initiative = SponsorshipInitiative(
+                organization_id=organization.id
+            )
+            db.session.add(initiative)
+
+        initiative.organization_id = organization.id
+        initiative.name = initiative_name
+        initiative.fundraising_target = request.form.get(
+            "fundraising_target",
+            ""
+        ).strip()
+
+        deadline_value = request.form.get("deadline", "").strip()
+        initiative.deadline = (
+            datetime.strptime(deadline_value, "%Y-%m-%d").date()
+            if deadline_value
+            else None
+        )
+
+        initiative.audience = request.form.get("audience", "").strip()
+        initiative.needs = request.form.get("needs", "").strip()
+        initiative.goals = request.form.get("goals", "").strip()
+        initiative.status = "Active"
+
+        db.session.commit()
+
+        session["initiative_id"] = initiative.id
+        session["initiative"] = get_initiative_profile()
+
+        flash(
+            "Organization and sponsorship initiative saved.",
+            "success"
+        )
+        return redirect(url_for("workspace"))
+
+    return render_template(
+        "setup.html",
+        organization=organization,
+        initiative=initiative
+    )
+
+
 @app.route("/")
 def home():
-    return render_template("home.html", org=ORG, count=Opportunity.query.count())
+    return render_template("home.html", org=get_org_profile(), count=Opportunity.query.count())
 
 
 @app.route("/start", methods=["GET", "POST"])
@@ -571,26 +830,17 @@ def start():
         }
         return redirect(url_for("workspace"))
 
-    return render_template("start.html", org=ORG)
+    return render_template("start.html", org=get_org_profile())
 
 
 @app.route("/workspace")
 def workspace():
-    data = session.get("initiative")
-
-    if not data:
-        data = {
-            "initiative": "2026 Ms. Full-Figured North Carolina Pageant",
-            "target": "$25,000 cash + $10,000 in-kind",
-            "deadline": "October 1, 2026",
-            "audience": "Delegates, pageant attendees, families, supporters, local community members, social media followers, and women connected to confidence, service, and empowerment.",
-            "needs": "Venue costs, printing, program book, delegate experiences, awards, photography, beauty services, fashion support, hospitality, community service support, and event production."
-        }
-        session["initiative"] = data
+    data = get_initiative_profile()
+    session["initiative"] = data
 
     return render_template(
         "workspace.html",
-        org=ORG,
+        org=get_org_profile(),
         data=data,
         categories=CATEGORIES,
         assets=ASSETS,
@@ -819,10 +1069,10 @@ def show_pipeline():
 def opportunity_detail(opportunity_id):
     opp = Opportunity.query.get_or_404(opportunity_id)
 
-    default_subject = opp.subject or f"Potential partnership with {ORG['name']}"
+    default_subject = opp.subject or f"Potential partnership with {get_org_profile()['name']}"
     display_message = (opp.reviewed_message or opp.outreach or "").replace(
         "[Director Name]",
-        SENDER_NAME
+        get_sender_name()
     )
 
     review_notes = None
