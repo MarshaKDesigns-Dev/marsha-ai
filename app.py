@@ -145,6 +145,12 @@ class Opportunity(db.Model):
     message_review_notes = db.Column(db.Text)
     message_reviewed_at = db.Column(db.DateTime)
 
+    follow_up_subject = db.Column(db.String(300))
+    follow_up_message = db.Column(db.Text)
+    follow_up_review_notes = db.Column(db.Text)
+    follow_up_reviewed_at = db.Column(db.DateTime)
+    follow_up_completed_at = db.Column(db.DateTime)
+
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(
         db.DateTime,
@@ -248,18 +254,15 @@ Title: {contact.get('title')}
 Department: {contact.get('department')}
 Email: {contact.get('email')}
 Phone: {contact.get('phone')}
-Contact form URL: {contact.get('contact_url')}
 Why this contact: {contact.get('why_this_contact')}
 
 Rules:
-- Write only the outreach content.
+- Write only the outreach message.
 - Do not include internal labels such as primary, secondary, local route, corporate route, recommended target, or contact research.
 - Do not expose research notes or source language.
 - If no named person is verified, use a natural role-based greeting.
+- If the only verified route is phone, write a short call script instead of an email.
 - If an email is available, write a concise email.
-- If there is no email but a phone number is available, write a short call script.
-- If there is no email or phone number but a contact form URL is available, write a concise contact-form message.
-- For contact-form messages, do not include an email subject line.
 - Do not invent facts.
 - Do not overpromise benefits.
 - Keep the tone professional, specific, and human.
@@ -274,7 +277,142 @@ Rules:
         return response.output_text.strip()
     except Exception as e:
         return f"Outreach drafting failed: {str(e)}"
-    
+
+
+def draft_follow_up(opp):
+    c = client()
+
+    if not c:
+        return {"error": "OPENAI_API_KEY is not configured."}
+
+    channel = opp.outreach_channel or "email"
+    original_message = opp.reviewed_message or opp.outreach or ""
+
+    prompt = f"""
+You are the Follow-Up Worker for Marsha AI's Sponsorship Coordinator.
+
+Create a concise first follow-up for a sponsorship outreach that has not yet received a recorded response.
+
+Organization:
+{ORG['name']}
+Location: {ORG['location']}
+Mission: {ORG['mission']}
+
+Sender:
+Name: {SENDER_NAME}
+Title: {SENDER_TITLE}
+
+Opportunity:
+Parent prospect: {opp.parent_prospect}
+Recommended target: {opp.recommended_target}
+Decision-maker: {opp.contact_name}
+Title: {opp.title}
+Department: {opp.department}
+Channel: {channel}
+Original outreach date: {opp.sent_date}
+Reason this contact was selected: {opp.why_this_contact}
+
+Original outreach:
+{original_message}
+
+Rules:
+- Do not invent a response from the prospect.
+- Do not imply the original message was read.
+- Do not repeat the entire original pitch.
+- Keep the follow-up brief, respectful, and specific.
+- Mention the earlier outreach naturally.
+- Include one clear next step.
+- Avoid pressure, urgency, or guilt.
+- For email, return a subject and message.
+- For phone, return a short follow-up call script and use an empty subject.
+- For contact_form, return a concise follow-up message and use an empty subject.
+- Return only JSON with keys: subject, message.
+"""
+
+    try:
+        response = c.responses.create(
+            model="gpt-5-mini",
+            input=prompt
+        )
+        text = response.output_text.strip()
+
+        if text.startswith("```"):
+            text = text.replace("```json", "").replace("```", "").strip()
+
+        result = json.loads(text)
+
+        return {
+            "subject": result.get("subject") or "",
+            "message": result.get("message") or ""
+        }
+    except Exception as e:
+        return {"error": f"Follow-up drafting failed: {str(e)}"}
+
+
+def review_follow_up_quality(opp, subject, message):
+    c = client()
+
+    if not c:
+        return {"error": "OPENAI_API_KEY is not configured."}
+
+    channel = opp.outreach_channel or "email"
+
+    prompt = f"""
+You are the Message Quality Review Worker for Marsha AI's Sponsorship Coordinator.
+
+Review and improve a sponsorship follow-up before the user sends, calls, or submits it.
+
+Organization:
+{ORG['name']}
+Location: {ORG['location']}
+Mission: {ORG['mission']}
+
+Opportunity:
+Parent prospect: {opp.parent_prospect}
+Recommended target: {opp.recommended_target}
+Decision-maker: {opp.contact_name}
+Title: {opp.title}
+Department: {opp.department}
+Channel: {channel}
+Original outreach date: {opp.sent_date}
+Follow-up due date: {opp.follow_up_date}
+
+Current follow-up subject:
+{subject}
+
+Current follow-up:
+{message}
+
+Rules:
+- Do not invent facts or a prospect response.
+- Do not claim the original outreach was read.
+- Do not overpromise benefits.
+- Keep the follow-up brief, respectful, and specific.
+- Remove pressure, guilt, or repetitive language.
+- Include one clear next step.
+- For phone, make the script natural when spoken aloud.
+- For contact forms, keep the message compact.
+- For phone and contact_form, improved_subject must be an empty string.
+- Return only JSON with keys:
+improved_subject, improved_message, review_notes, risk_flags.
+- risk_flags must be a list.
+"""
+
+    try:
+        response = c.responses.create(
+            model="gpt-5-mini",
+            input=prompt
+        )
+        text = response.output_text.strip()
+
+        if text.startswith("```"):
+            text = text.replace("```json", "").replace("```", "").strip()
+
+        return json.loads(text)
+    except Exception as e:
+        return {"error": f"Follow-up quality review failed: {str(e)}"}
+
+
 def determine_outreach_channel(contact):
     if contact.get("email"):
         return "email"
@@ -669,7 +807,12 @@ def approve(category, index):
 @app.route("/pipeline")
 def show_pipeline():
     opportunities = Opportunity.query.order_by(Opportunity.updated_at.desc()).all()
-    return render_template("pipeline.html", opportunities=opportunities)
+
+    return render_template(
+        "pipeline.html",
+        opportunities=opportunities,
+        today=date.today()
+    )
 
 
 @app.route("/opportunity/<int:opportunity_id>")
@@ -677,7 +820,10 @@ def opportunity_detail(opportunity_id):
     opp = Opportunity.query.get_or_404(opportunity_id)
 
     default_subject = opp.subject or f"Potential partnership with {ORG['name']}"
-    display_message = (opp.reviewed_message or opp.outreach or "").replace("[Director Name]", SENDER_NAME)
+    display_message = (opp.reviewed_message or opp.outreach or "").replace(
+        "[Director Name]",
+        SENDER_NAME
+    )
 
     review_notes = None
     if opp.message_review_notes:
@@ -685,6 +831,19 @@ def opportunity_detail(opportunity_id):
             review_notes = json.loads(opp.message_review_notes)
         except Exception:
             review_notes = None
+
+    follow_up_due = bool(
+        opp.stage == "Sent"
+        and opp.follow_up_date
+        and opp.follow_up_date <= date.today()
+    )
+
+    follow_up_review_notes = None
+    if opp.follow_up_review_notes:
+        try:
+            follow_up_review_notes = json.loads(opp.follow_up_review_notes)
+        except Exception:
+            follow_up_review_notes = None
 
     return render_template(
         "opportunity.html",
@@ -694,8 +853,11 @@ def opportunity_detail(opportunity_id):
         test_email=TEST_EMAIL,
         default_subject=default_subject,
         display_message=display_message,
-        review_notes=review_notes
+        review_notes=review_notes,
+        follow_up_due=follow_up_due,
+        follow_up_review_notes=follow_up_review_notes
     )
+
 
 @app.route("/opportunity/<int:opportunity_id>/review-message", methods=["POST"])
 def review_message(opportunity_id):
@@ -710,12 +872,8 @@ def review_message(opportunity_id):
         flash("Subject and message are required before review.", "warning")
         return redirect(url_for("opportunity_detail", opportunity_id=opp.id))
 
-    if channel == "phone" and not message:
+    if channel != "email" and not message:
         flash("Call script is required before review.", "warning")
-        return redirect(url_for("opportunity_detail", opportunity_id=opp.id))
-
-    if channel == "contact_form" and not message:
-        flash("Contact-form message is required before review.", "warning")
         return redirect(url_for("opportunity_detail", opportunity_id=opp.id))
 
     result = review_message_quality(opp, subject, message)
@@ -735,13 +893,7 @@ def review_message(opportunity_id):
 
     db.session.commit()
 
-    if channel == "phone":
-        flash("Call script quality review completed. Review the improved version before calling.", "success")
-    elif channel == "contact_form":
-        flash("Contact-form message quality review completed. Review the improved version before submitting.", "success")
-    else:
-        flash("Message quality review completed. Review the improved version before sending.", "success")
-
+    flash("Message quality review completed. Review the improved version before sending.", "success")
     return redirect(url_for("opportunity_detail", opportunity_id=opp.id))
 
 @app.route("/opportunity/<int:opportunity_id>/send-email", methods=["POST"])
@@ -841,6 +993,98 @@ def mark_sent(opportunity_id):
         flash("Outreach marked as sent. Follow-up scheduled for 7 days from today.", "success")
 
     return redirect(url_for("opportunity_detail", opportunity_id=opp.id))
+
+
+@app.route("/opportunity/<int:opportunity_id>/generate-follow-up", methods=["POST"])
+def generate_follow_up(opportunity_id):
+    opp = Opportunity.query.get_or_404(opportunity_id)
+
+    if not opp.follow_up_date or opp.follow_up_date > date.today():
+        flash("This opportunity is not due for follow-up yet.", "warning")
+        return redirect(url_for("opportunity_detail", opportunity_id=opp.id))
+
+    result = draft_follow_up(opp)
+
+    if result.get("error"):
+        flash(result["error"], "warning")
+        return redirect(url_for("opportunity_detail", opportunity_id=opp.id))
+
+    opp.follow_up_subject = result.get("subject") or ""
+    opp.follow_up_message = result.get("message") or ""
+    opp.follow_up_review_notes = None
+    opp.follow_up_reviewed_at = None
+    opp.follow_up_completed_at = None
+
+    db.session.commit()
+
+    flash("Follow-up draft generated. Review it before completing the follow-up.", "success")
+    return redirect(url_for("opportunity_detail", opportunity_id=opp.id))
+
+
+@app.route("/opportunity/<int:opportunity_id>/review-follow-up", methods=["POST"])
+def review_follow_up(opportunity_id):
+    opp = Opportunity.query.get_or_404(opportunity_id)
+
+    channel = opp.outreach_channel or "email"
+    subject = request.form.get("subject", "").strip()
+    message = request.form.get("message", "").strip()
+
+    if channel == "email" and (not subject or not message):
+        flash("Follow-up subject and message are required before review.", "warning")
+        return redirect(url_for("opportunity_detail", opportunity_id=opp.id))
+
+    if channel != "email" and not message:
+        flash("Follow-up content is required before review.", "warning")
+        return redirect(url_for("opportunity_detail", opportunity_id=opp.id))
+
+    result = review_follow_up_quality(opp, subject, message)
+
+    if result.get("error"):
+        flash(result["error"], "warning")
+        return redirect(url_for("opportunity_detail", opportunity_id=opp.id))
+
+    opp.follow_up_subject = result.get("improved_subject") or subject
+    opp.follow_up_message = result.get("improved_message") or message
+    opp.follow_up_review_notes = json.dumps({
+        "review_notes": result.get("review_notes"),
+        "risk_flags": result.get("risk_flags") or []
+    })
+    opp.follow_up_reviewed_at = datetime.utcnow()
+
+    db.session.commit()
+
+    if channel == "phone":
+        flash("Follow-up call script reviewed. Review the improved version before calling.", "success")
+    elif channel == "contact_form":
+        flash("Follow-up contact-form message reviewed. Review it before submitting.", "success")
+    else:
+        flash("Follow-up email reviewed. Review it before sending.", "success")
+
+    return redirect(url_for("opportunity_detail", opportunity_id=opp.id))
+
+
+@app.route("/opportunity/<int:opportunity_id>/complete-follow-up", methods=["POST"])
+def complete_follow_up(opportunity_id):
+    opp = Opportunity.query.get_or_404(opportunity_id)
+
+    if not opp.follow_up_reviewed_at:
+        flash("Review the follow-up before marking it complete.", "warning")
+        return redirect(url_for("opportunity_detail", opportunity_id=opp.id))
+
+    opp.follow_up_completed_at = datetime.utcnow()
+    opp.follow_up_date = date.today() + timedelta(days=7)
+
+    db.session.commit()
+
+    if opp.outreach_channel == "phone":
+        flash("Follow-up call recorded. The next follow-up is scheduled for 7 days from today.", "success")
+    elif opp.outreach_channel == "contact_form":
+        flash("Follow-up contact form recorded. The next follow-up is scheduled for 7 days from today.", "success")
+    else:
+        flash("Follow-up email recorded. The next follow-up is scheduled for 7 days from today.", "success")
+
+    return redirect(url_for("opportunity_detail", opportunity_id=opp.id))
+
 
 @app.route("/opportunity/<int:opportunity_id>/update", methods=["POST"])
 def update_opportunity(opportunity_id):

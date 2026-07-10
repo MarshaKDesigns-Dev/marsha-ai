@@ -27,20 +27,13 @@
     </div>
 {% endif %}
 
-
 <div class="eyebrow mt-4">OPPORTUNITY RECORD</div>
-
 <h1>{{ opp.recommended_target }}</h1>
-
 <p>Parent Prospect: {{ opp.parent_prospect }}</p>
 
-
 <div class="row g-4">
-
     <div class="col-lg-5">
-
         <div class="card p-4 mb-4">
-
             <h2>Decision-Maker</h2>
 
             <p>
@@ -49,17 +42,14 @@
             </p>
 
             <p>
-                <strong>Prospect Email:</strong>
-                {{ opp.email or 'Not available' }}<br>
-
-                <strong>Phone:</strong>
-                {{ opp.phone or 'Not available' }}
+                <strong>Prospect Email:</strong> {{ opp.email or 'Not available' }}<br>
+                <strong>Phone:</strong> {{ opp.phone or 'Not available' }}
             </p>
 
             {% if opp.contact_url %}
                 <p>
                     <strong>Contact Form:</strong><br>
-                    <a href="{{ opp.contact_url }}" target="_blank">
+                    <a href="{{ opp.contact_url }}" target="_blank" rel="noopener">
                         Open Contact Form
                     </a>
                 </p>
@@ -67,56 +57,33 @@
 
             {% if test_mode and opp.outreach_channel == "email" %}
                 <p>
-                    <strong>Actual Test Delivery:</strong>
-                    {{ test_email }}
+                    <strong>Actual Test Delivery:</strong> {{ test_email }}
                 </p>
             {% endif %}
 
             <p>
-                <strong>Confidence:</strong>
-                {{ opp.confidence }}<br>
-
-                <strong>Verified:</strong>
-                {{ opp.verified_date }}
+                <strong>Confidence:</strong> {{ opp.confidence }}<br>
+                <strong>Verified:</strong> {{ opp.verified_date }}
             </p>
 
             <p>{{ opp.why_this_contact }}</p>
-
         </div>
 
-
         <div class="card p-4">
-
             <h2>Opportunity Status</h2>
 
-            <form
-                method="post"
-                action="{{ url_for('update_opportunity', opportunity_id=opp.id) }}"
-            >
-
-                <label class="form-label fw-bold">
-                    Stage
-                </label>
+            <form method="post" action="{{ url_for('update_opportunity', opportunity_id=opp.id) }}">
+                <label class="form-label fw-bold">Stage</label>
 
                 <select class="form-select mb-3" name="stage">
-
                     {% for stage in stages %}
-
-                        <option
-                            {% if stage == opp.stage %}selected{% endif %}
-                        >
+                        <option {% if stage == opp.stage %}selected{% endif %}>
                             {{ stage }}
                         </option>
-
                     {% endfor %}
-
                 </select>
 
-
-                <label class="form-label fw-bold">
-                    Follow-Up Date
-                </label>
-
+                <label class="form-label fw-bold">Follow-Up Date</label>
                 <input
                     class="form-control mb-3"
                     type="date"
@@ -124,168 +91,84 @@
                     value="{{ opp.follow_up_date or '' }}"
                 >
 
-
-                <label class="form-label fw-bold">
-                    Notes
-                </label>
-
-                <textarea
-                    class="form-control mb-3"
-                    name="notes"
-                    rows="5"
-                >{{ opp.notes or '' }}</textarea>
-
+                <label class="form-label fw-bold">Notes</label>
+                <textarea class="form-control mb-3" name="notes" rows="5">{{ opp.notes or '' }}</textarea>
 
                 <button class="btn btn-outline-dark w-100">
                     Save Opportunity Update
                 </button>
-
             </form>
-
         </div>
-
     </div>
 
-
     <div class="col-lg-7">
-
-        <div class="card p-4">
-
-            <div class="eyebrow">
-                OUTREACH EXECUTION WORKER
-            </div>
-
+        <div class="card p-4 mb-4">
+            <div class="eyebrow">OUTREACH EXECUTION WORKER</div>
             <h2>{{ opp.stage }}</h2>
 
-
             {% if opp.stage == 'Ready to Send' %}
-
-
                 {% if opp.message_reviewed_at %}
-
                     <div class="alert alert-success">
-
                         {% if opp.outreach_channel == "phone" %}
-
                             <strong>Call script reviewed.</strong>
                             This version has passed the Message Quality Review Worker.
-
                         {% elif opp.outreach_channel == "contact_form" %}
-
                             <strong>Contact-form message reviewed.</strong>
                             This version has passed the Message Quality Review Worker.
-
                         {% else %}
-
                             <strong>Message reviewed.</strong>
                             This version has passed the Message Quality Review Worker.
-
                         {% endif %}
-
                     </div>
 
-
                     {% if review_notes %}
-
                         <div class="action-card mb-3">
-
                             <strong>Review Notes:</strong><br>
-
                             {{ review_notes.review_notes }}<br>
 
                             {% if review_notes.risk_flags %}
-
                                 <strong>Risk Flags:</strong>
-
                                 <ul class="mb-0">
-
                                     {% for flag in review_notes.risk_flags %}
-
                                         <li>{{ flag }}</li>
-
                                     {% endfor %}
-
                                 </ul>
-
                             {% endif %}
-
                         </div>
-
                     {% endif %}
-
-
                 {% else %}
-
-
                     {% if opp.outreach_channel == "phone" %}
-
                         <div class="alert alert-warning">
-                            <strong>
-                                Call script has not been quality reviewed yet.
-                            </strong>
+                            <strong>Call script has not been quality reviewed yet.</strong>
                             Review it before contacting the prospect.
                         </div>
-
-
                     {% elif opp.outreach_channel == "contact_form" %}
-
                         <div class="alert alert-warning">
-                            <strong>
-                                Contact-form message has not been quality reviewed yet.
-                            </strong>
+                            <strong>Contact-form message has not been quality reviewed yet.</strong>
                             Review it before submitting the form.
                         </div>
-
-
                     {% else %}
-
                         <div class="alert alert-warning">
-                            <strong>
-                                Message has not been quality reviewed yet.
-                            </strong>
+                            <strong>Message has not been quality reviewed yet.</strong>
                             Review it before sending a real prospect message.
                         </div>
-
                     {% endif %}
-
-
                 {% endif %}
 
-
-
                 {% if opp.outreach_channel == "phone" %}
-
-
                     <div class="action-card mb-3">
-
                         <strong>Phone Outreach</strong><br>
-
-                        <strong>Call:</strong>
-                        {{ opp.phone or 'No phone number available' }}
-
+                        <strong>Call:</strong> {{ opp.phone or 'No phone number available' }}
                     </div>
 
-
-                    <form
-                        method="post"
-                        action="{{ url_for('review_message', opportunity_id=opp.id) }}"
-                        class="mb-3"
-                    >
-
+                    <form method="post" action="{{ url_for('review_message', opportunity_id=opp.id) }}" class="mb-3">
                         <label class="form-label fw-bold">
-
                             {% if opp.message_reviewed_at %}
-
                                 Reviewed Call Script
-
                             {% else %}
-
                                 Call Script
-
                             {% endif %}
-
                         </label>
-
 
                         <textarea
                             class="form-control mb-3"
@@ -295,85 +178,44 @@
                             {% if opp.message_reviewed_at %}readonly{% endif %}
                         >{{ display_message }}</textarea>
 
-
-                        <input
-                            type="hidden"
-                            name="subject"
-                            value=""
-                        >
-
+                        <input type="hidden" name="subject" value="">
 
                         {% if not opp.message_reviewed_at %}
-
                             <button class="btn btn-outline-dark w-100">
                                 Run Call Script Quality Review
                             </button>
-
                         {% endif %}
-
                     </form>
 
-
-                    <form
-                        method="post"
-                        action="{{ url_for('mark_sent', opportunity_id=opp.id) }}"
-                    >
-
-                        <button class="btn btn-gold w-100">
-                            I Completed This Call
-                        </button>
-
-                    </form>
-
-
+                    {% if opp.message_reviewed_at %}
+                        <form method="post" action="{{ url_for('mark_sent', opportunity_id=opp.id) }}">
+                            <button class="btn btn-gold w-100">
+                                I Completed This Call
+                            </button>
+                        </form>
+                    {% endif %}
 
                 {% elif opp.outreach_channel == "contact_form" %}
-
-
                     <div class="action-card mb-3">
-
                         <strong>Contact Form Outreach</strong><br>
-
                         <strong>Submit To:</strong>
-
                         {% if opp.contact_url %}
-
-                            <a
-                                href="{{ opp.contact_url }}"
-                                target="_blank"
-                            >
+                            <a href="{{ opp.contact_url }}" target="_blank" rel="noopener">
                                 Open Contact Form
                             </a>
-
                         {% else %}
-
                             No contact form URL available
-
                         {% endif %}
-
                     </div>
 
-
-                    <form
-                        method="post"
-                        action="{{ url_for('review_message', opportunity_id=opp.id) }}"
-                        class="mb-3"
-                    >
-
+                    <form method="post" action="{{ url_for('review_message', opportunity_id=opp.id) }}" class="mb-3">
                         <label class="form-label fw-bold">
-
                             {% if opp.message_reviewed_at %}
-
                                 Reviewed Contact Form Message
-
                             {% else %}
-
                                 Contact Form Message
-
                             {% endif %}
-
                         </label>
-
 
                         <textarea
                             class="form-control mb-3"
@@ -383,73 +225,39 @@
                             {% if opp.message_reviewed_at %}readonly{% endif %}
                         >{{ display_message }}</textarea>
 
-
-                        <input
-                            type="hidden"
-                            name="subject"
-                            value=""
-                        >
-
+                        <input type="hidden" name="subject" value="">
 
                         {% if not opp.message_reviewed_at %}
-
                             <button class="btn btn-outline-dark w-100">
                                 Run Contact Form Quality Review
                             </button>
-
                         {% endif %}
-
                     </form>
 
-
                     {% if opp.message_reviewed_at %}
-
-                        <form
-                            method="post"
-                            action="{{ url_for('mark_sent', opportunity_id=opp.id) }}"
-                        >
+                        <form method="post" action="{{ url_for('mark_sent', opportunity_id=opp.id) }}">
                             <button class="btn btn-gold w-100">
                                 I Submitted This Form
                             </button>
                         </form>
-
                     {% endif %}
 
-
                 {% else %}
-
-
-                    <form
-                        method="post"
-                        action="{{ url_for('review_message', opportunity_id=opp.id) }}"
-                        class="mb-3"
-                    >
-
-                        <label class="form-label fw-bold">
-                            To
-                        </label>
-
+                    <form method="post" action="{{ url_for('review_message', opportunity_id=opp.id) }}" class="mb-3">
+                        <label class="form-label fw-bold">To</label>
                         <input
                             class="form-control mb-3"
                             value="{{ test_email if test_mode else opp.email }}"
                             readonly
                         >
 
-
                         <label class="form-label fw-bold">
-
                             {% if opp.message_reviewed_at %}
-
                                 Reviewed Subject
-
                             {% else %}
-
                                 Subject
-
                             {% endif %}
-
                         </label>
-
 
                         <input
                             class="form-control mb-3"
@@ -459,21 +267,13 @@
                             {% if opp.message_reviewed_at %}readonly{% endif %}
                         >
 
-
                         <label class="form-label fw-bold">
-
                             {% if opp.message_reviewed_at %}
-
                                 Reviewed Message
-
                             {% else %}
-
                                 Message
-
                             {% endif %}
-
                         </label>
-
 
                         <textarea
                             class="form-control mb-3"
@@ -483,126 +283,183 @@
                             {% if opp.message_reviewed_at %}readonly{% endif %}
                         >{{ display_message }}</textarea>
 
-
                         {% if not opp.message_reviewed_at %}
-
                             <button class="btn btn-outline-dark w-100">
                                 Run Message Quality Review
                             </button>
-
                         {% endif %}
-
                     </form>
 
+                    {% if opp.message_reviewed_at %}
+                        <form method="post" action="{{ url_for('send_email', opportunity_id=opp.id) }}">
+                            <button class="btn btn-gold w-100 mb-3">
+                                {% if test_mode %}
+                                    Send Test Email
+                                {% else %}
+                                    Send Live Email
+                                {% endif %}
+                            </button>
+                        </form>
 
-                    <form
-                        method="post"
-                        action="{{ url_for('send_email', opportunity_id=opp.id) }}"
-                    >
-
-                        <input
-                            type="hidden"
-                            name="subject"
-                            value="{{ default_subject }}"
-                        >
-
-                        <textarea
-                            name="message"
-                            hidden
-                        >{{ display_message }}</textarea>
-
-
-                        <button class="btn btn-gold w-100 mb-3">
-
-                            {% if test_mode %}
-
-                                Send Test Email
-
-                            {% else %}
-
-                                Send Live Email
-
-                            {% endif %}
-
-                        </button>
-
-                    </form>
-
-
-                    <form
-                        method="post"
-                        action="{{ url_for('mark_sent', opportunity_id=opp.id) }}"
-                    >
-
-                        <button class="btn btn-outline-dark w-100">
-                            I Sent It Another Way
-                        </button>
-
-                    </form>
-
-
+                        <form method="post" action="{{ url_for('mark_sent', opportunity_id=opp.id) }}">
+                            <button class="btn btn-outline-dark w-100">
+                                I Sent It Another Way
+                            </button>
+                        </form>
+                    {% endif %}
                 {% endif %}
 
-
-
             {% else %}
-
-
                 <div class="action-card">
-
-
                     {% if opp.outreach_channel == "phone" %}
-
-                        <strong>Activity:</strong>
-                        Phone Call<br>
-
-                        <strong>Called:</strong>
-                        {{ opp.delivery_recipient or opp.phone or 'Not recorded' }}<br>
-
-                        <strong>Completed:</strong>
-                        {{ opp.sent_date or 'Not recorded' }}<br>
-
-
+                        <strong>Activity:</strong> Phone Call<br>
+                        <strong>Called:</strong> {{ opp.delivery_recipient or opp.phone or 'Not recorded' }}<br>
+                        <strong>Completed:</strong> {{ opp.sent_date or 'Not recorded' }}<br>
                     {% elif opp.outreach_channel == "contact_form" %}
-
-                        <strong>Activity:</strong>
-                        Contact Form<br>
-
-                        <strong>Submitted To:</strong>
-                        {{ opp.delivery_recipient or opp.contact_url or 'Not recorded' }}<br>
-
-                        <strong>Submitted:</strong>
-                        {{ opp.sent_date or 'Not recorded' }}<br>
-
-
+                        <strong>Activity:</strong> Contact Form<br>
+                        <strong>Submitted To:</strong> {{ opp.delivery_recipient or opp.contact_url or 'Not recorded' }}<br>
+                        <strong>Submitted:</strong> {{ opp.sent_date or 'Not recorded' }}<br>
                     {% else %}
-
-                        <strong>Delivery Mode:</strong>
-                        {{ opp.delivery_mode or 'External/manual' }}<br>
-
-                        <strong>Delivered To:</strong>
-                        {{ opp.delivery_recipient or 'Not recorded' }}<br>
-
-                        <strong>Sent:</strong>
-                        {{ opp.sent_date or 'Not recorded' }}<br>
-
+                        <strong>Delivery Mode:</strong> {{ opp.delivery_mode or 'External/manual' }}<br>
+                        <strong>Delivered To:</strong> {{ opp.delivery_recipient or 'Not recorded' }}<br>
+                        <strong>Sent:</strong> {{ opp.sent_date or 'Not recorded' }}<br>
                     {% endif %}
 
-
-                    <strong>Follow-Up:</strong>
-                    {{ opp.follow_up_date or 'Not scheduled' }}
-
-
+                    <strong>Follow-Up:</strong> {{ opp.follow_up_date or 'Not scheduled' }}
                 </div>
-
-
             {% endif %}
-
-
         </div>
 
-    </div>
+        {% if follow_up_due %}
+            <div class="card p-4">
+                <div class="eyebrow">FOLLOW-UP WORKER</div>
+                <h2>Follow-Up Due</h2>
 
+                <div class="action-card mb-3">
+                    <strong>Original Channel:</strong>
+                    {% if opp.outreach_channel == "phone" %}
+                        Phone
+                    {% elif opp.outreach_channel == "contact_form" %}
+                        Contact Form
+                    {% else %}
+                        Email
+                    {% endif %}
+                    <br>
+                    <strong>Original Outreach:</strong> {{ opp.sent_date or 'Not recorded' }}<br>
+                    <strong>Follow-Up Due:</strong> {{ opp.follow_up_date }}
+                </div>
+
+                {% if not opp.follow_up_message %}
+                    <form method="post" action="{{ url_for('generate_follow_up', opportunity_id=opp.id) }}">
+                        <button class="btn btn-dark w-100">
+                            Generate Follow-Up
+                        </button>
+                    </form>
+                {% else %}
+                    {% if opp.follow_up_reviewed_at %}
+                        <div class="alert alert-success">
+                            <strong>Follow-up reviewed.</strong>
+                            This version has passed the Message Quality Review Worker.
+                        </div>
+
+                        {% if follow_up_review_notes %}
+                            <div class="action-card mb-3">
+                                <strong>Review Notes:</strong><br>
+                                {{ follow_up_review_notes.review_notes }}<br>
+
+                                {% if follow_up_review_notes.risk_flags %}
+                                    <strong>Risk Flags:</strong>
+                                    <ul class="mb-0">
+                                        {% for flag in follow_up_review_notes.risk_flags %}
+                                            <li>{{ flag }}</li>
+                                        {% endfor %}
+                                    </ul>
+                                {% endif %}
+                            </div>
+                        {% endif %}
+                    {% else %}
+                        <div class="alert alert-warning">
+                            <strong>Follow-up has not been quality reviewed yet.</strong>
+                            Review it before completing the follow-up.
+                        </div>
+                    {% endif %}
+
+                    <form method="post" action="{{ url_for('review_follow_up', opportunity_id=opp.id) }}" class="mb-3">
+                        {% if opp.outreach_channel == "email" %}
+                            <label class="form-label fw-bold">
+                                {% if opp.follow_up_reviewed_at %}
+                                    Reviewed Follow-Up Subject
+                                {% else %}
+                                    Follow-Up Subject
+                                {% endif %}
+                            </label>
+
+                            <input
+                                class="form-control mb-3"
+                                name="subject"
+                                value="{{ opp.follow_up_subject or '' }}"
+                                required
+                                {% if opp.follow_up_reviewed_at %}readonly{% endif %}
+                            >
+                        {% else %}
+                            <input type="hidden" name="subject" value="">
+                        {% endif %}
+
+                        <label class="form-label fw-bold">
+                            {% if opp.follow_up_reviewed_at %}
+                                Reviewed Follow-Up
+                            {% elif opp.outreach_channel == "phone" %}
+                                Follow-Up Call Script
+                            {% elif opp.outreach_channel == "contact_form" %}
+                                Follow-Up Contact Form Message
+                            {% else %}
+                                Follow-Up Message
+                            {% endif %}
+                        </label>
+
+                        <textarea
+                            class="form-control mb-3"
+                            name="message"
+                            rows="12"
+                            required
+                            {% if opp.follow_up_reviewed_at %}readonly{% endif %}
+                        >{{ opp.follow_up_message }}</textarea>
+
+                        {% if not opp.follow_up_reviewed_at %}
+                            <button class="btn btn-outline-dark w-100">
+                                Run Follow-Up Quality Review
+                            </button>
+                        {% endif %}
+                    </form>
+
+                    {% if opp.follow_up_reviewed_at %}
+                        {% if opp.outreach_channel == "contact_form" and opp.contact_url %}
+                            <a
+                                class="btn btn-outline-dark w-100 mb-3"
+                                href="{{ opp.contact_url }}"
+                                target="_blank"
+                                rel="noopener"
+                            >
+                                Open Contact Form
+                            </a>
+                        {% endif %}
+
+                        <form method="post" action="{{ url_for('complete_follow_up', opportunity_id=opp.id) }}">
+                            <button class="btn btn-gold w-100">
+                                {% if opp.outreach_channel == "phone" %}
+                                    I Completed the Follow-Up Call
+                                {% elif opp.outreach_channel == "contact_form" %}
+                                    I Submitted the Follow-Up Form
+                                {% else %}
+                                    I Sent the Follow-Up
+                                {% endif %}
+                            </button>
+                        </form>
+                    {% endif %}
+                {% endif %}
+            </div>
+        {% endif %}
+    </div>
 </div>
 
 {% endblock %}
