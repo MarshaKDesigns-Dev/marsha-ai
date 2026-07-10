@@ -133,7 +133,19 @@
         </ul>
         {% endif %}
       </div>
-      {% endif %} {% else %} {% if opp.outreach_channel == "phone" %}
+      {% endif %}
+
+      <form
+        method="post"
+        action="{{ url_for('reset_message_review', opportunity_id=opp.id) }}"
+        class="mb-3"
+      >
+        <button class="btn btn-outline-dark w-100">
+          Re-review Message
+        </button>
+      </form>
+
+      {% else %} {% if opp.outreach_channel == "phone" %}
       <div class="alert alert-warning">
         <strong>Call script has not been quality reviewed yet.</strong>
         Review it before contacting the prospect.
