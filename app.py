@@ -755,6 +755,11 @@ Current outreach:
 
 Rules:
 - Preserve the supplied organization, initiative, sender, prospect, and contact facts.
+- Treat the sender name, title, and email as immutable facts.
+- Use the sender title exactly as provided: "{context['sender_title']}".
+- Never shorten, promote, replace, or substitute the sender title.
+- If the current outreach contains a conflicting sender title, replace it with
+  the exact saved sender title above.
 - Do not assume the organization is a pageant, nonprofit, event, or other type
   unless that information appears above.
 - Do not invent audience size, attendance, sponsor benefits, inventory,
@@ -1211,6 +1216,40 @@ def review_message(opportunity_id):
 
     flash("Message quality review completed. Review the improved version before sending.", "success")
     return redirect(url_for("opportunity_detail", opportunity_id=opp.id))
+
+@app.route(
+    "/opportunity/<int:opportunity_id>/reset-message-review",
+    methods=["POST"]
+)
+def reset_message_review(opportunity_id):
+    opp = Opportunity.query.get_or_404(opportunity_id)
+
+    if opp.stage != "Ready to Send":
+        flash(
+            "Only opportunities that are ready to send can be re-reviewed.",
+            "warning"
+        )
+        return redirect(
+            url_for("opportunity_detail", opportunity_id=opp.id)
+        )
+
+    opp.reviewed_message = None
+    opp.message_review_notes = None
+    opp.message_reviewed_at = None
+
+    if (opp.outreach_channel or "email") == "email":
+        opp.subject = None
+
+    db.session.commit()
+
+    flash(
+        "The previous review was cleared. Review the message again before sending.",
+        "success"
+    )
+    return redirect(
+        url_for("opportunity_detail", opportunity_id=opp.id)
+    )
+
 
 @app.route("/opportunity/<int:opportunity_id>/send-email", methods=["POST"])
 def send_email(opportunity_id):
