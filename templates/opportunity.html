@@ -396,7 +396,7 @@
         action="{{ url_for('review_follow_up', opportunity_id=opp.id) }}"
         class="mb-3"
       >
-        {% if opp.outreach_channel == "email" %}
+        {% if (opp.outreach_channel or "email") == "email" %}
         <label class="form-label fw-bold">
           {% if opp.follow_up_reviewed_at %} Reviewed Follow-Up Subject {% else
           %} Follow-Up Subject {% endif %}
