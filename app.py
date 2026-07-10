@@ -248,15 +248,18 @@ Title: {contact.get('title')}
 Department: {contact.get('department')}
 Email: {contact.get('email')}
 Phone: {contact.get('phone')}
+Contact form URL: {contact.get('contact_url')}
 Why this contact: {contact.get('why_this_contact')}
 
 Rules:
-- Write only the outreach message.
+- Write only the outreach content.
 - Do not include internal labels such as primary, secondary, local route, corporate route, recommended target, or contact research.
 - Do not expose research notes or source language.
 - If no named person is verified, use a natural role-based greeting.
-- If the only verified route is phone, write a short call script instead of an email.
 - If an email is available, write a concise email.
+- If there is no email but a phone number is available, write a short call script.
+- If there is no email or phone number but a contact form URL is available, write a concise contact-form message.
+- For contact-form messages, do not include an email subject line.
 - Do not invent facts.
 - Do not overpromise benefits.
 - Keep the tone professional, specific, and human.
@@ -271,7 +274,7 @@ Rules:
         return response.output_text.strip()
     except Exception as e:
         return f"Outreach drafting failed: {str(e)}"
-
+    
 def determine_outreach_channel(contact):
     if contact.get("email"):
         return "email"
@@ -694,7 +697,6 @@ def opportunity_detail(opportunity_id):
         review_notes=review_notes
     )
 
-
 @app.route("/opportunity/<int:opportunity_id>/review-message", methods=["POST"])
 def review_message(opportunity_id):
     opp = Opportunity.query.get_or_404(opportunity_id)
@@ -708,8 +710,12 @@ def review_message(opportunity_id):
         flash("Subject and message are required before review.", "warning")
         return redirect(url_for("opportunity_detail", opportunity_id=opp.id))
 
-    if channel != "email" and not message:
+    if channel == "phone" and not message:
         flash("Call script is required before review.", "warning")
+        return redirect(url_for("opportunity_detail", opportunity_id=opp.id))
+
+    if channel == "contact_form" and not message:
+        flash("Contact-form message is required before review.", "warning")
         return redirect(url_for("opportunity_detail", opportunity_id=opp.id))
 
     result = review_message_quality(opp, subject, message)
@@ -729,7 +735,13 @@ def review_message(opportunity_id):
 
     db.session.commit()
 
-    flash("Message quality review completed. Review the improved version before sending.", "success")
+    if channel == "phone":
+        flash("Call script quality review completed. Review the improved version before calling.", "success")
+    elif channel == "contact_form":
+        flash("Contact-form message quality review completed. Review the improved version before submitting.", "success")
+    else:
+        flash("Message quality review completed. Review the improved version before sending.", "success")
+
     return redirect(url_for("opportunity_detail", opportunity_id=opp.id))
 
 @app.route("/opportunity/<int:opportunity_id>/send-email", methods=["POST"])
