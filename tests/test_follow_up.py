@@ -1,3 +1,4 @@
+from pathlib import Path
 from types import SimpleNamespace
 
 import app as app_module
@@ -159,4 +160,20 @@ def test_apply_follow_up_draft_repairs_stale_email_draft_without_subject(
         "Following up: Test Nonprofit and Test Sponsor"
     )
     assert opportunity.follow_up_message == "Fresh follow-up message"
+
+def test_follow_up_template_defaults_missing_channel_to_email():
+    template_path = Path("templates/opportunity.html")
+    template_text = template_path.read_text(encoding="utf-8")
+
+    follow_up_form_position = template_text.index(
+        "review_follow_up"
+    )
+    follow_up_form = template_text[follow_up_form_position:]
+
+    assert (
+        '{% if (opp.outreach_channel or "email") == "email" %}'
+        in follow_up_form
+    )
+    assert 'name="subject"' in follow_up_form
+    assert 'value="{{ opp.follow_up_subject or \'\' }}"' in follow_up_form
 
