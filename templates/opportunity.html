@@ -72,7 +72,11 @@
 
         <select class="form-select mb-3" name="stage">
           {% for stage in stages %}
-          <option {% if stage="" ="opp.stage" %}selected{% endif %}>
+          {% if stage == opp.stage %}
+          <option value="{{ stage }}" selected>
+        {% else %}
+          <option value="{{ stage }}">
+        {% endif %}
             {{ stage }}
           </option>
           {% endfor %}
@@ -165,12 +169,7 @@
           name="message"
           rows="18"
           required
-          {%
-          if
-          opp.message_reviewed_at
-          %}readonly{%
-          endif
-          %}
+          {% if opp.message_reviewed_at %}readonly{% endif %}
         >
 {{ display_message }}</textarea
         >
@@ -217,12 +216,7 @@
           name="message"
           rows="14"
           required
-          {%
-          if
-          opp.message_reviewed_at
-          %}readonly{%
-          endif
-          %}
+          {% if opp.message_reviewed_at %}readonly{% endif %}
         >
 {{ display_message }}</textarea
         >
@@ -266,12 +260,7 @@
           name="subject"
           value="{{ default_subject }}"
           required
-          {%
-          if
-          opp.message_reviewed_at
-          %}readonly{%
-          endif
-          %}
+          {% if opp.message_reviewed_at %}readonly{% endif %}
         />
 
         <label class="form-label fw-bold">
@@ -284,12 +273,7 @@
           name="message"
           rows="18"
           required
-          {%
-          if
-          opp.message_reviewed_at
-          %}readonly{%
-          endif
-          %}
+          {% if opp.message_reviewed_at %}readonly{% endif %}
         >
 {{ display_message }}</textarea
         >
@@ -411,12 +395,7 @@
           name="subject"
           value="{{ opp.follow_up_subject or '' }}"
           required
-          {%
-          if
-          opp.follow_up_reviewed_at
-          %}readonly{%
-          endif
-          %}
+          {% if opp.follow_up_reviewed_at %}readonly{% endif %}
         />
         {% else %}
         <input type="hidden" name="subject" value="" />
@@ -434,12 +413,7 @@
           name="message"
           rows="12"
           required
-          {%
-          if
-          opp.follow_up_reviewed_at
-          %}readonly{%
-          endif
-          %}
+          {% if opp.follow_up_reviewed_at %}readonly{% endif %}
         >
 {{ opp.follow_up_message }}</textarea
         >

@@ -1,24 +1,26 @@
-# Follow-Up Worker Build
+# Context-Driven AI Workers
 
-Replace these files in your project:
+This update makes the existing AI workers use the saved organization and active
+sponsorship initiative throughout:
 
-- `app.py`
-- `templates/opportunity.html`
-- `templates/pipeline.html`
+- Contact Research Worker
+- Outreach Drafting Worker
+- Message Quality Review Worker
+- Follow-Up Worker
+- Follow-Up Quality Review
 
-Then run:
+It also restores explicit contact-form drafting logic and removes pageant-specific
+fallback context from the worker layer.
+
+## Install
+
+1. Stop Flask.
+2. Replace the project `app.py` with this `app.py`.
+3. Do not run a migration; this update adds no database columns.
+4. Start the app with:
 
 ```powershell
-py migrate_follow_up.py
 py app.py
 ```
 
-Test with an opportunity whose `stage` is `Sent` and whose `follow_up_date` is today or earlier.
-
-This build adds:
-- calculated Follow-Up Due status
-- channel-aware follow-up drafting
-- follow-up quality review
-- reviewed follow-up locking
-- channel-aware completion
-- automatic next follow-up scheduling for seven days later
+5. Test by re-running contact research for one unsaved prospect.

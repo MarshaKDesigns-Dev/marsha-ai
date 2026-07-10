@@ -15,9 +15,15 @@ app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 db = SQLAlchemy(app)
 
 DEFAULT_ORG = {
-    "name": "Ms. Full-Figured North Carolina Pageant",
-    "location": "Durham, North Carolina",
-    "mission": "Empower, Inspire, and Serve through confidence, leadership, community service, personal growth, and sisterhood."
+    "name": "Organization",
+    "organization_type": "Organization",
+    "location": "",
+    "mission": "",
+    "sender_name": "",
+    "sender_title": "",
+    "sender_email": "",
+    "website": "",
+    "phone": ""
 }
 
 CATEGORIES = [
@@ -295,19 +301,11 @@ def get_initiative_profile():
 
     if not initiative:
         return {
-            "initiative": "2026 Ms. Full-Figured North Carolina Pageant",
-            "target": "$25,000 cash + $10,000 in-kind",
-            "deadline": "October 1, 2026",
-            "audience": (
-                "Delegates, pageant attendees, families, supporters, local "
-                "community members, social media followers, and women connected "
-                "to confidence, service, and empowerment."
-            ),
-            "needs": (
-                "Venue costs, printing, program book, delegate experiences, "
-                "awards, photography, beauty services, fashion support, "
-                "hospitality, community service support, and event production."
-            ),
+            "initiative": "",
+            "target": "",
+            "deadline": "",
+            "audience": "",
+            "needs": "",
             "goals": ""
         }
 
@@ -329,6 +327,30 @@ def get_sender_title():
     return get_org_profile().get("sender_title") or SENDER_TITLE
 
 
+
+def get_worker_context():
+    organization = get_org_profile()
+    initiative = get_initiative_profile()
+
+    return {
+        "organization_name": organization.get("name") or "Organization",
+        "organization_type": organization.get("organization_type") or "Organization",
+        "location": organization.get("location") or "",
+        "mission": organization.get("mission") or "",
+        "sender_name": organization.get("sender_name") or get_sender_name(),
+        "sender_title": organization.get("sender_title") or get_sender_title(),
+        "sender_email": organization.get("sender_email") or "",
+        "website": organization.get("website") or "",
+        "organization_phone": organization.get("phone") or "",
+        "initiative_name": initiative.get("initiative") or "",
+        "fundraising_target": initiative.get("target") or "",
+        "deadline": initiative.get("deadline") or "",
+        "audience": initiative.get("audience") or "",
+        "needs": initiative.get("needs") or "",
+        "goals": initiative.get("goals") or ""
+    }
+
+
 def get_prospect_key(category, index):
     return f"{category}:{index}"
 
@@ -337,36 +359,59 @@ def client():
     return OpenAI(api_key=key) if key else None
 
 
+
 def research_contact(prospect):
     c = client()
     if not c:
         return {"error": "OPENAI_API_KEY is not configured."}
 
+    context = get_worker_context()
+
     prompt = f"""
-You are the Contact Research Worker for a sponsorship coordinator.
+You are the Contact Research Worker for Marsha AI's Sponsorship Coordinator.
+
+Your task is to identify the strongest current, publicly verifiable contact path
+for a sponsorship or community partnership approach.
 
 Organization seeking sponsorship:
-{get_org_profile()['name']} in {get_org_profile()['location']}
-Mission: {get_org_profile()['mission']}
+Name: {context['organization_name']}
+Type: {context['organization_type']}
+Location: {context['location']}
+Mission: {context['mission']}
+Website: {context['website']}
 
-Parent prospect:
-Company: {prospect['name']}
-Location/relevance: {prospect['location']}
+Active sponsorship initiative:
+Name: {context['initiative_name']}
+Fundraising target: {context['fundraising_target']}
+Deadline: {context['deadline']}
+Audience: {context['audience']}
+Needs: {context['needs']}
+Goals: {context['goals']}
+
+Prospect being researched:
+Parent company or organization: {prospect['name']}
+Location or relevance: {prospect['location']}
 Category: {prospect['category']}
-Sponsorship angle: {prospect['angle']}
+Why it may fit: {prospect['fit']}
+Recommended sponsorship angle: {prospect['angle']}
 
-Research the current public web and identify the best legitimate contact path for a sponsorship or community partnership approach.
+Research the current public web and identify the best legitimate contact path
+for this specific organization and initiative.
 
 Important:
-- The best target may be a local subsidiary, dealership, branch, hospital, store, or operating unit rather than the parent company.
-- If so, clearly name it in recommended_target.
+- Evaluate fit against the active initiative, audience, needs, goals, and location.
+- The best target may be a local branch, subsidiary, operating unit, foundation,
+  dealership, hospital, store, community office, or corporate team.
+- Clearly name the best target in recommended_target.
 - Never invent a person, title, email, phone number, profile, or URL.
-- Prefer an actual current decision-maker only when publicly verifiable.
+- Prefer a named decision-maker only when publicly verifiable.
 - If no named person is verifiable, identify the best department and official route.
 - Do not guess email patterns.
+- Distinguish clearly between the parent organization and the recommended target.
 - Return only JSON with these keys:
-recommended_target, contact_name, title, department, email, phone, contact_url, linkedin_url,
-why_this_contact, confidence, verified_date, sources, recommended_next_action.
+recommended_target, contact_name, title, department, email, phone, contact_url,
+linkedin_url, why_this_contact, confidence, verified_date, sources,
+recommended_next_action.
 - Use null for unavailable values.
 - sources must be a list of objects with label and url.
 """
@@ -378,11 +423,14 @@ why_this_contact, confidence, verified_date, sources, recommended_next_action.
             input=prompt
         )
         text = response.output_text.strip()
+
         if text.startswith("```"):
             text = text.replace("```json", "").replace("```", "").strip()
+
         return json.loads(text)
     except Exception as e:
         return {"error": f"Contact research failed: {str(e)}"}
+
 
 
 def draft_outreach(prospect, contact):
@@ -391,19 +439,32 @@ def draft_outreach(prospect, contact):
     if not c:
         return "OPENAI_API_KEY is not configured. Outreach could not be drafted."
 
+    context = get_worker_context()
+
     prompt = f"""
 You are the Outreach Drafting Worker for Marsha AI's Sponsorship Coordinator.
 
-Your job is to turn verified contact research into clean, recipient-facing outreach.
+Turn verified contact research into clear, recipient-facing sponsorship outreach.
 
 Organization:
-{get_org_profile()['name']}
-Location: {get_org_profile()['location']}
-Mission: {get_org_profile()['mission']}
+Name: {context['organization_name']}
+Type: {context['organization_type']}
+Location: {context['location']}
+Mission: {context['mission']}
+Website: {context['website']}
+
+Active sponsorship initiative:
+Name: {context['initiative_name']}
+Fundraising target: {context['fundraising_target']}
+Deadline: {context['deadline']}
+Audience: {context['audience']}
+Needs: {context['needs']}
+Goals: {context['goals']}
 
 Sender:
-Name: {get_sender_name()}
-Title: {get_sender_title()}
+Name: {context['sender_name']}
+Title: {context['sender_title']}
+Email: {context['sender_email']}
 
 Prospect:
 Name: {prospect['name']}
@@ -411,26 +472,34 @@ Category: {prospect['category']}
 Fit: {prospect['fit']}
 Recommended sponsorship angle: {prospect['angle']}
 
-Contact research:
+Verified contact research:
 Recommended target: {contact.get('recommended_target')}
 Contact name: {contact.get('contact_name')}
 Title: {contact.get('title')}
 Department: {contact.get('department')}
 Email: {contact.get('email')}
 Phone: {contact.get('phone')}
+Contact form URL: {contact.get('contact_url')}
 Why this contact: {contact.get('why_this_contact')}
 
 Rules:
-- Write only the outreach message.
-- Do not include internal labels such as primary, secondary, local route, corporate route, recommended target, or contact research.
-- Do not expose research notes or source language.
+- Write only the outreach content.
+- Use the saved organization and initiative information; do not assume a pageant,
+  nonprofit, event, or campaign type that was not provided.
+- Do not expose research notes, source language, or internal routing labels.
 - If no named person is verified, use a natural role-based greeting.
-- If the only verified route is phone, write a short call script instead of an email.
 - If an email is available, write a concise email.
-- Do not invent facts.
-- Do not overpromise benefits.
-- Keep the tone professional, specific, and human.
-- End with the sender name, sender title, and organization name.
+- If there is no email but a phone number is available, write a short call script.
+- If there is no email or phone number but a contact form URL is available,
+  write a concise contact-form message.
+- For contact-form messages, do not include an email subject line.
+- Connect the request to the prospect using only verified or supplied facts.
+- Do not invent audience size, event attendance, benefits, relationships,
+  sponsorship inventory, or commitments.
+- Do not overpromise sponsor outcomes.
+- Make the next step specific and easy to answer.
+- Keep the tone professional, direct, and human.
+- End with the saved sender name, sender title, and organization name.
 """
 
     try:
@@ -443,28 +512,41 @@ Rules:
         return f"Outreach drafting failed: {str(e)}"
 
 
+
 def draft_follow_up(opp):
     c = client()
 
     if not c:
         return {"error": "OPENAI_API_KEY is not configured."}
 
+    context = get_worker_context()
     channel = opp.outreach_channel or "email"
     original_message = opp.reviewed_message or opp.outreach or ""
 
     prompt = f"""
 You are the Follow-Up Worker for Marsha AI's Sponsorship Coordinator.
 
-Create a concise first follow-up for a sponsorship outreach that has not yet received a recorded response.
+Create a concise first follow-up for sponsorship outreach that has not received
+a recorded response.
 
 Organization:
-{get_org_profile()['name']}
-Location: {get_org_profile()['location']}
-Mission: {get_org_profile()['mission']}
+Name: {context['organization_name']}
+Type: {context['organization_type']}
+Location: {context['location']}
+Mission: {context['mission']}
+
+Active sponsorship initiative:
+Name: {context['initiative_name']}
+Fundraising target: {context['fundraising_target']}
+Deadline: {context['deadline']}
+Audience: {context['audience']}
+Needs: {context['needs']}
+Goals: {context['goals']}
 
 Sender:
-Name: {get_sender_name()}
-Title: {get_sender_title()}
+Name: {context['sender_name']}
+Title: {context['sender_title']}
+Email: {context['sender_email']}
 
 Opportunity:
 Parent prospect: {opp.parent_prospect}
@@ -480,15 +562,16 @@ Original outreach:
 {original_message}
 
 Rules:
-- Do not invent a response from the prospect.
-- Do not imply the original message was read.
+- Use the saved organization and active initiative context.
+- Do not invent a prospect response.
+- Do not imply the original outreach was read.
 - Do not repeat the entire original pitch.
 - Keep the follow-up brief, respectful, and specific.
 - Mention the earlier outreach naturally.
 - Include one clear next step.
-- Avoid pressure, urgency, or guilt.
+- Avoid pressure, urgency, guilt, or unsupported claims.
 - For email, return a subject and message.
-- For phone, return a short follow-up call script and use an empty subject.
+- For phone, return a natural follow-up call script and use an empty subject.
 - For contact_form, return a concise follow-up message and use an empty subject.
 - Return only JSON with keys: subject, message.
 """
@@ -513,23 +596,35 @@ Rules:
         return {"error": f"Follow-up drafting failed: {str(e)}"}
 
 
+
 def review_follow_up_quality(opp, subject, message):
     c = client()
 
     if not c:
         return {"error": "OPENAI_API_KEY is not configured."}
 
+    context = get_worker_context()
     channel = opp.outreach_channel or "email"
 
     prompt = f"""
 You are the Message Quality Review Worker for Marsha AI's Sponsorship Coordinator.
 
-Review and improve a sponsorship follow-up before the user sends, calls, or submits it.
+Review and improve a sponsorship follow-up before the user sends, calls, or
+submits it.
 
 Organization:
-{get_org_profile()['name']}
-Location: {get_org_profile()['location']}
-Mission: {get_org_profile()['mission']}
+Name: {context['organization_name']}
+Type: {context['organization_type']}
+Location: {context['location']}
+Mission: {context['mission']}
+
+Active sponsorship initiative:
+Name: {context['initiative_name']}
+Fundraising target: {context['fundraising_target']}
+Deadline: {context['deadline']}
+Audience: {context['audience']}
+Needs: {context['needs']}
+Goals: {context['goals']}
 
 Opportunity:
 Parent prospect: {opp.parent_prospect}
@@ -548,11 +643,12 @@ Current follow-up:
 {message}
 
 Rules:
-- Do not invent facts or a prospect response.
+- Preserve the saved organization and initiative facts.
+- Do not invent facts, benefits, results, relationships, or a prospect response.
 - Do not claim the original outreach was read.
-- Do not overpromise benefits.
-- Keep the follow-up brief, respectful, and specific.
-- Remove pressure, guilt, or repetitive language.
+- Do not overpromise sponsor outcomes.
+- Keep the follow-up brief, respectful, specific, and easy to answer.
+- Remove pressure, guilt, unsupported urgency, and repetitive language.
 - Include one clear next step.
 - For phone, make the script natural when spoken aloud.
 - For contact forms, keep the message compact.
@@ -589,118 +685,86 @@ def determine_outreach_channel(contact):
 
     return "unknown"
 
+
 def review_message_quality(opp, subject, message):
     c = client()
+
     if not c:
         return {"error": "OPENAI_API_KEY is not configured."}
 
+    context = get_worker_context()
     channel = opp.outreach_channel or "email"
 
-    if channel == "phone":
-        prompt = f"""
+    channel_instructions = {
+        "phone": (
+            "Improve a sponsorship phone call script. Make it natural when "
+            "spoken aloud. improved_subject must be an empty string."
+        ),
+        "contact_form": (
+            "Improve a sponsorship contact-form message. Keep it concise enough "
+            "for a typical web form. improved_subject must be an empty string."
+        ),
+        "email": (
+            "Improve a sponsorship outreach email, including its subject line."
+        )
+    }
+
+    prompt = f"""
 You are the Message Quality Review Worker for Marsha AI's Sponsorship Coordinator.
 
-Your job is to improve a sponsorship phone call script before the user contacts the prospect.
+{channel_instructions.get(channel, channel_instructions['email'])}
 
 Organization:
-{get_org_profile()['name']}
-Location: {get_org_profile()['location']}
-Mission: {get_org_profile()['mission']}
+Name: {context['organization_name']}
+Type: {context['organization_type']}
+Location: {context['location']}
+Mission: {context['mission']}
+Website: {context['website']}
+
+Active sponsorship initiative:
+Name: {context['initiative_name']}
+Fundraising target: {context['fundraising_target']}
+Deadline: {context['deadline']}
+Audience: {context['audience']}
+Needs: {context['needs']}
+Goals: {context['goals']}
+
+Sender:
+Name: {context['sender_name']}
+Title: {context['sender_title']}
+Email: {context['sender_email']}
 
 Opportunity:
 Parent prospect: {opp.parent_prospect}
-Recommended local target: {opp.recommended_target}
+Recommended target: {opp.recommended_target}
 Decision-maker: {opp.contact_name}
 Title: {opp.title}
+Department: {opp.department}
 Category: {opp.category}
-Reason this contact was selected: {opp.why_this_contact}
-Verified phone number: {opp.phone}
-
-Current call script:
-{message}
-
-Rules:
-- Do not invent new facts.
-- Do not overpromise sponsorship benefits.
-- Do not claim an existing relationship unless stated.
-- Make the script sound natural when spoken aloud.
-- Keep it concise, respectful, and specific.
-- Make parent company vs local target clear.
-- Include a clear reason for the call.
-- Include a simple next step.
-- Return only JSON with keys:
-improved_subject, improved_message, review_notes, risk_flags.
-- For phone scripts, improved_subject should be an empty string.
-- risk_flags must be a list.
-"""
-    elif channel == "contact_form":
-        prompt = f"""
-You are the Message Quality Review Worker for Marsha AI's Sponsorship Coordinator.
-
-Your job is to improve a sponsorship contact-form message before the user submits it.
-
-Organization:
-{get_org_profile()['name']}
-Location: {get_org_profile()['location']}
-Mission: {get_org_profile()['mission']}
-
-Opportunity:
-Parent prospect: {opp.parent_prospect}
-Recommended local target: {opp.recommended_target}
-Decision-maker: {opp.contact_name}
-Title: {opp.title}
-Category: {opp.category}
-Reason this contact was selected: {opp.why_this_contact}
+Channel: {channel}
+Email: {opp.email}
+Phone: {opp.phone}
 Contact form URL: {opp.contact_url}
-
-Current message:
-{message}
-
-Rules:
-- Do not invent new facts.
-- Do not overpromise sponsorship benefits.
-- Do not claim an existing relationship unless stated.
-- Keep the message short enough for a contact form.
-- Make the request clear.
-- Include a simple next step.
-- Return only JSON with keys:
-improved_subject, improved_message, review_notes, risk_flags.
-- For contact forms, improved_subject should be an empty string.
-- risk_flags must be a list.
-"""
-    else:
-        prompt = f"""
-You are the Message Quality Review Worker for Marsha AI's Sponsorship Coordinator.
-
-Your job is to improve a sponsorship outreach email before the user sends it.
-
-Organization:
-{get_org_profile()['name']}
-Location: {get_org_profile()['location']}
-Mission: {get_org_profile()['mission']}
-
-Opportunity:
-Parent prospect: {opp.parent_prospect}
-Recommended local target: {opp.recommended_target}
-Decision-maker: {opp.contact_name}
-Title: {opp.title}
-Category: {opp.category}
 Reason this contact was selected: {opp.why_this_contact}
 
 Current subject:
 {subject}
 
-Current message:
+Current outreach:
 {message}
 
 Rules:
-- Do not invent new facts.
-- Do not overpromise sponsorship benefits.
+- Preserve the supplied organization, initiative, sender, prospect, and contact facts.
+- Do not assume the organization is a pageant, nonprofit, event, or other type
+  unless that information appears above.
+- Do not invent audience size, attendance, sponsor benefits, inventory,
+  relationships, results, commitments, or contact details.
 - Do not claim an existing relationship unless stated.
-- Keep the email concise, respectful, and specific.
-- Fix awkward phrasing.
-- Make parent company vs local target clear.
-- Keep the tone professional and human.
+- Do not overpromise sponsorship outcomes.
+- Make the parent organization and recommended target clear when relevant.
+- Keep the message concise, respectful, specific, professional, and human.
+- Include one clear next step.
+- Correct awkward phrasing and remove internal research language.
 - Return only JSON with keys:
 improved_subject, improved_message, review_notes, risk_flags.
 - risk_flags must be a list.
@@ -712,8 +776,10 @@ improved_subject, improved_message, review_notes, risk_flags.
             input=prompt
         )
         text = response.output_text.strip()
+
         if text.startswith("```"):
             text = text.replace("```json", "").replace("```", "").strip()
+
         return json.loads(text)
     except Exception as e:
         return {"error": f"Message quality review failed: {str(e)}"}
