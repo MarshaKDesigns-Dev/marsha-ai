@@ -437,6 +437,16 @@
         {% endif %}
       </form>
 
+      <form
+        method="post"
+        action="{{ url_for('generate_follow_up', opportunity_id=opp.id) }}"
+        class="mb-3"
+      >
+        <button class="btn btn-outline-dark w-100">
+          Regenerate Follow-Up
+        </button>
+      </form>
+
       {% if opp.follow_up_reviewed_at %} {% if opp.outreach_channel ==
       "contact_form" and opp.contact_url %}
       <a

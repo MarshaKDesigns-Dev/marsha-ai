@@ -1377,6 +1377,19 @@ def normalize_follow_up_draft(opp, result):
     }
 
 
+def apply_follow_up_draft(opp, result):
+    """Replace a follow-up draft and clear stale review/completion state."""
+    follow_up_draft = normalize_follow_up_draft(opp, result)
+
+    opp.follow_up_subject = follow_up_draft["subject"]
+    opp.follow_up_message = follow_up_draft["message"]
+    opp.follow_up_review_notes = None
+    opp.follow_up_reviewed_at = None
+    opp.follow_up_completed_at = None
+
+    return follow_up_draft
+
+
 @app.route("/opportunity/<int:opportunity_id>/generate-follow-up", methods=["POST"])
 def generate_follow_up(opportunity_id):
     opp = Opportunity.query.get_or_404(opportunity_id)
@@ -1391,17 +1404,22 @@ def generate_follow_up(opportunity_id):
         flash(result["error"], "warning")
         return redirect(url_for("opportunity_detail", opportunity_id=opp.id))
 
-    follow_up_draft = normalize_follow_up_draft(opp, result)
+    was_regenerated = bool(opp.follow_up_message)
 
-    opp.follow_up_subject = follow_up_draft["subject"]
-    opp.follow_up_message = follow_up_draft["message"]
-    opp.follow_up_review_notes = None
-    opp.follow_up_reviewed_at = None
-    opp.follow_up_completed_at = None
+    apply_follow_up_draft(opp, result)
 
     db.session.commit()
 
-    flash("Follow-up draft generated. Review it before completing the follow-up.", "success")
+    if was_regenerated:
+        flash(
+            "Follow-up draft regenerated. Review the new version before completing the follow-up.",
+            "success"
+        )
+    else:
+        flash(
+            "Follow-up draft generated. Review it before completing the follow-up.",
+            "success"
+        )
     return redirect(url_for("opportunity_detail", opportunity_id=opp.id))
 
 
