@@ -1,3 +1,5 @@
+
+
 import os, json, smtplib
 from email.message import EmailMessage
 from datetime import UTC, date, datetime, timedelta
@@ -138,6 +140,193 @@ class SponsorshipInitiative(db.Model):
         onupdate=datetime.utcnow
     )
 
+class SponsorshipIntelligence(db.Model):
+    """Persisted high-level AI analysis and strategy for an initiative."""
+
+    id = db.Column(db.Integer, primary_key=True)
+
+    organization_id = db.Column(
+        db.Integer,
+        db.ForeignKey("organization.id"),
+        nullable=False,
+    )
+
+    initiative_id = db.Column(
+        db.Integer,
+        db.ForeignKey("sponsorship_initiative.id"),
+        nullable=False,
+        unique=True,
+    )
+
+    organization_analysis_json = db.Column(
+        db.Text,
+        nullable=False,
+        default="{}",
+    )
+
+    sponsorship_strategy_json = db.Column(
+        db.Text,
+        nullable=False,
+        default="{}",
+    )
+
+    generated_at = db.Column(
+        db.DateTime,
+        default=lambda: datetime.now(UTC),
+        nullable=False,
+    )
+
+    updated_at = db.Column(
+        db.DateTime,
+        default=lambda: datetime.now(UTC),
+        onupdate=lambda: datetime.now(UTC),
+        nullable=False,
+    )
+
+    @property
+    def organization_analysis(self):
+        """Return the stored organization analysis as a dictionary."""
+
+        try:
+            return json.loads(self.organization_analysis_json or "{}")
+        except (TypeError, ValueError):
+            return {}
+
+    @property
+    def sponsorship_strategy(self):
+        """Return the stored sponsorship strategy as a dictionary."""
+
+        try:
+            return json.loads(self.sponsorship_strategy_json or "{}")
+        except (TypeError, ValueError):
+            return {}
+
+
+class ResearchPriority(db.Model):
+    """Persisted AI-generated research direction for one sponsor category."""
+
+    id = db.Column(db.Integer, primary_key=True)
+
+    organization_id = db.Column(
+        db.Integer,
+        db.ForeignKey("organization.id"),
+        nullable=False,
+    )
+
+    initiative_id = db.Column(
+        db.Integer,
+        db.ForeignKey("sponsorship_initiative.id"),
+        nullable=False,
+    )
+
+    category_slug = db.Column(
+        db.String(100),
+        nullable=False,
+    )
+
+    priority = db.Column(
+        db.Integer,
+        nullable=False,
+    )
+
+    ideal_sponsor_profile = db.Column(
+        db.Text,
+        nullable=False,
+    )
+
+    research_direction = db.Column(
+        db.Text,
+        nullable=False,
+    )
+
+    qualification_signals_json = db.Column(
+        db.Text,
+        nullable=False,
+        default="[]",
+    )
+
+    verification_requirements_json = db.Column(
+        db.Text,
+        nullable=False,
+        default="[]",
+    )
+
+    disqualification_signals_json = db.Column(
+        db.Text,
+        nullable=False,
+        default="[]",
+    )
+
+    recommended_asset_names_json = db.Column(
+        db.Text,
+        nullable=False,
+        default="[]",
+    )
+
+    outreach_angle = db.Column(
+        db.Text,
+        nullable=False,
+    )
+
+    is_active = db.Column(
+        db.Boolean,
+        default=True,
+        nullable=False,
+    )
+
+    created_at = db.Column(
+        db.DateTime,
+        default=lambda: datetime.now(UTC),
+        nullable=False,
+    )
+
+    updated_at = db.Column(
+        db.DateTime,
+        default=lambda: datetime.now(UTC),
+        onupdate=lambda: datetime.now(UTC),
+        nullable=False,
+    )
+
+    __table_args__ = (
+        db.UniqueConstraint(
+            "initiative_id",
+            "category_slug",
+            name="uq_research_priority_initiative_category",
+        ),
+    )
+
+    @staticmethod
+    def _load_json_list(value):
+        try:
+            result = json.loads(value or "[]")
+            return result if isinstance(result, list) else []
+        except (TypeError, ValueError):
+            return []
+
+    @property
+    def qualification_signals(self):
+        return self._load_json_list(
+            self.qualification_signals_json
+        )
+
+    @property
+    def verification_requirements(self):
+        return self._load_json_list(
+            self.verification_requirements_json
+        )
+
+    @property
+    def disqualification_signals(self):
+        return self._load_json_list(
+            self.disqualification_signals_json
+        )
+
+    @property
+    def recommended_asset_names(self):
+        return self._load_json_list(
+            self.recommended_asset_names_json
+        )
+        
 
 class SponsorCategory(db.Model):
     id = db.Column(db.Integer, primary_key=True)
@@ -155,6 +344,9 @@ class SponsorCategory(db.Model):
     category = db.Column(db.String(200), nullable=False)
     fit = db.Column(db.Text)
     score = db.Column(db.Integer, default=0)
+    priority = db.Column(db.Integer)
+    ideal_sponsor_profile = db.Column(db.Text)
+    research_direction = db.Column(db.Text)
     is_active = db.Column(db.Boolean, default=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(
@@ -179,6 +371,16 @@ class SponsorshipAsset(db.Model):
     name = db.Column(db.String(200), nullable=False)
     value = db.Column(db.Text)
     capacity = db.Column(db.String(100))
+    description = db.Column(db.Text)
+    sponsor_value = db.Column(db.Text)
+    audience_value = db.Column(db.Text)
+    delivery_method = db.Column(db.Text)
+    exclusivity = db.Column(db.String(150))
+    measurement_method = db.Column(db.Text)
+    recommended_categories_json = db.Column(
+        db.Text,
+        default="[]"
+    )
     is_active = db.Column(db.Boolean, default=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(
@@ -186,6 +388,18 @@ class SponsorshipAsset(db.Model):
         default=datetime.utcnow,
         onupdate=datetime.utcnow
     )
+
+    @property
+    def recommended_categories(self):
+        """Return the recommended sponsor-category slugs."""
+
+        try:
+            result = json.loads(
+                self.recommended_categories_json or "[]"
+            )
+            return result if isinstance(result, list) else []
+        except (TypeError, ValueError):
+            return []
 
 
 class ResearchRecord(db.Model):
@@ -1648,8 +1862,6 @@ def deliver_smtp_email(recipient, subject, message):
         smtp.login(SMTP_EMAIL, SMTP_APP_PASSWORD)
         smtp.send_message(email)
 
-
-from datetime import UTC, date, datetime, timedelta
 
 def record_follow_up_completion(opp):
     """Record a completed follow-up and schedule the next one."""
