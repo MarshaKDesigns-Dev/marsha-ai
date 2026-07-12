@@ -1,6 +1,6 @@
 import os, json, smtplib
 from email.message import EmailMessage
-from datetime import datetime, date, timedelta
+from datetime import UTC, date, datetime, timedelta
 from flask import Flask, render_template, request, redirect, url_for, flash, session
 from dotenv import load_dotenv
 from openai import OpenAI
@@ -1649,9 +1649,11 @@ def deliver_smtp_email(recipient, subject, message):
         smtp.send_message(email)
 
 
+from datetime import UTC, date, datetime, timedelta
+
 def record_follow_up_completion(opp):
     """Record a completed follow-up and schedule the next one."""
-    opp.follow_up_completed_at = datetime.utcnow()
+    opp.follow_up_completed_at = datetime.now(UTC)
     opp.follow_up_date = date.today() + timedelta(days=7)
 
 
