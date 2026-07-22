@@ -84,6 +84,12 @@ def test_budget_exhaustion_raises_before_request_can_start(caplog):
     assert record.initiative_id == 10
     assert record.step_elapsed_seconds == 0.0
     assert record.workflow_elapsed_seconds == 100.0
+    assert record.getMessage() == (
+        "openai_generation_step_timed_out "
+        "generation_step=research_priorities organization_id=1 "
+        "initiative_id=10 step_elapsed_seconds=0.0 "
+        "workflow_elapsed_seconds=100.0"
+    )
 
 
 def test_parse_uses_capped_timeout_and_disables_retries():
@@ -130,4 +136,11 @@ def test_parse_timeout_logs_safe_context_and_raises_typed_error(caplog):
     assert record.generation_step == "sponsorship_strategy"
     assert record.organization_id == 1
     assert record.initiative_id == 10
-    assert "sensitive user content" not in record.getMessage()
+    message = record.getMessage()
+    assert "generation_step=sponsorship_strategy" in message
+    assert "organization_id=1" in message
+    assert "initiative_id=10" in message
+    assert "step_elapsed_seconds=15.0" in message
+    assert "workflow_elapsed_seconds=25.0" in message
+    assert "sensitive user content" not in message
+    assert "https://api" not in message

@@ -167,6 +167,80 @@ def test_generation_route_displays_timeout_message(monkeypatch):
     assert flashed == [("warning", timeout_message)]
 
 
+def test_timeout_message_renders_after_redirect(monkeypatch):
+    organization = SimpleNamespace(
+        id=1,
+        name="Community Arts Center",
+        location="Durham, NC",
+    )
+    initiative = SimpleNamespace(
+        id=10,
+        organization_id=1,
+        name="Summer Arts Festival",
+    )
+    timeout_message = (
+        "Sponsorship intelligence generation took too long. "
+        "Please try again."
+    )
+
+    monkeypatch.setattr(
+        app_module,
+        "get_active_organization",
+        lambda: organization,
+    )
+    monkeypatch.setattr(
+        app_module,
+        "get_active_initiative",
+        lambda: initiative,
+    )
+    monkeypatch.setattr(
+        app_module,
+        "run_workspace_intelligence_generation",
+        lambda *args, **kwargs: SimpleNamespace(
+            success=False,
+            message=timeout_message,
+        ),
+    )
+    monkeypatch.setattr(
+        app_module,
+        "get_org_profile",
+        lambda: {"name": organization.name},
+    )
+    monkeypatch.setattr(
+        app_module,
+        "get_initiative_profile",
+        lambda: {
+            "target": "Not set",
+            "deadline": "Not set",
+            "audience": "Families",
+            "needs": "Sponsors",
+            "goals": "Expand programming",
+        },
+    )
+    monkeypatch.setattr(
+        app_module,
+        "get_sponsorship_intelligence",
+        lambda org, init: None,
+    )
+    monkeypatch.setattr(
+        app_module,
+        "Opportunity",
+        SimpleNamespace(query=SimpleNamespace(all=lambda: [])),
+    )
+
+    client = app_module.app.test_client()
+    response = client.post(
+        "/workspace/generate-intelligence",
+        follow_redirects=True,
+    )
+
+    html = response.get_data(as_text=True)
+    assert response.status_code == 200
+    assert response.request.path == "/workspace"
+    assert timeout_message in html
+    assert 'class="alert alert-warning"' in html
+
+
 def test_workspace_loads_all_persisted_intelligence(monkeypatch):
     organization = SimpleNamespace(id=1)
     initiative = SimpleNamespace(id=10, organization_id=1)

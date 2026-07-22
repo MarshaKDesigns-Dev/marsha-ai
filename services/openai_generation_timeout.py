@@ -41,18 +41,35 @@ def _log_timeout(
     step_elapsed_seconds: float,
     workflow_elapsed_seconds: float,
 ) -> None:
+    organization_id = getattr(organization, "id", None)
+    initiative_id = getattr(initiative, "id", None)
+    rounded_step_elapsed = round(step_elapsed_seconds, 3)
+    rounded_workflow_elapsed = round(workflow_elapsed_seconds, 3)
+    extra = {
+        "generation_step": generation_step,
+        "organization_id": organization_id,
+        "initiative_id": initiative_id,
+        "step_elapsed_seconds": rounded_step_elapsed,
+        "workflow_elapsed_seconds": rounded_workflow_elapsed,
+    }
+
     logger.warning(
         "openai_generation_step_timed_out",
-        extra={
-            "generation_step": generation_step,
-            "organization_id": getattr(organization, "id", None),
-            "initiative_id": getattr(initiative, "id", None),
-            "step_elapsed_seconds": round(step_elapsed_seconds, 3),
-            "workflow_elapsed_seconds": round(
-                workflow_elapsed_seconds,
-                3,
-            ),
-        },
+        extra=extra,
+    )
+
+    logger.warning(
+        (
+            "openai_generation_step_timed_out "
+            "generation_step=%s organization_id=%s initiative_id=%s "
+            "step_elapsed_seconds=%s workflow_elapsed_seconds=%s"
+        ),
+        generation_step,
+        organization_id,
+        initiative_id,
+        rounded_step_elapsed,
+        rounded_workflow_elapsed,
+        extra=extra,
     )
 
 
