@@ -1,8 +1,11 @@
 from types import SimpleNamespace
 
+import httpx
 import pytest
+from openai import APITimeoutError
 
 from services.organization_analysis import OrganizationAnalysis
+from services.openai_generation_timeout import GenerationStepTimeoutError
 from services.sponsorship_strategy import (
     SponsorshipObjective,
     SponsorshipStrategy,
@@ -38,6 +41,11 @@ class FakeClient:
             parsed=parsed,
             error=error,
         )
+        self.last_options = None
+
+    def with_options(self, **kwargs):
+        self.last_options = kwargs
+        return self
 
 
 @pytest.fixture
@@ -263,6 +271,7 @@ def test_generate_strategy_returns_valid_model(
     assert len(result.objectives) == 1
     assert client.responses.last_kwargs["model"] == "test-model"
     assert client.responses.last_kwargs["text_format"] is SponsorshipStrategy
+    assert client.last_options == {"timeout": 45.0, "max_retries": 0}
 
 
 def test_missing_structured_response_raises(
@@ -303,3 +312,21 @@ def test_api_failure_raises_service_error(
             analysis,
             client=client,
         )
+
+
+def test_strategy_timeout_preserves_generation_step(
+    organization,
+    initiative,
+    analysis,
+):
+    timeout = APITimeoutError(request=httpx.Request("POST", "https://api"))
+
+    with pytest.raises(GenerationStepTimeoutError) as exc_info:
+        generate_sponsorship_strategy(
+            organization,
+            initiative,
+            analysis,
+            client=FakeClient(error=timeout),
+        )
+
+    assert exc_info.value.generation_step == "sponsorship_strategy"

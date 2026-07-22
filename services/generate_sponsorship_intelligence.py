@@ -61,6 +61,7 @@ class GenerationResult:
     warnings: list[str] = field(default_factory=list)
     record_id: int | None = None
     created_at: datetime | None = None
+    generation_step: str | None = None
 
 
 OrchestratorCallable = Callable[..., SponsorshipIntelligenceResult]
@@ -218,7 +219,7 @@ def generate_workspace_intelligence(
             client=client,
             model=model,
         )
-    except SponsorshipIntelligenceTimeoutError:
+    except SponsorshipIntelligenceTimeoutError as exc:
         return GenerationResult(
             success=False,
             status=STATUS_GENERATION_TIMEOUT,
@@ -227,6 +228,7 @@ def generate_workspace_intelligence(
                 "Please try again."
             ),
             errors=[STATUS_GENERATION_TIMEOUT],
+            generation_step=exc.generation_step,
         )
     except SponsorshipIntelligenceError:
         return GenerationResult(

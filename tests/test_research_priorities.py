@@ -5,11 +5,11 @@ import pytest
 from openai import APITimeoutError
 
 from services.organization_analysis import OrganizationAnalysis
+from services.openai_generation_timeout import GenerationStepTimeoutError
 from services.research_priorities import (
     ResearchPriorityGenerationError,
     ResearchPriorityRecommendation,
     ResearchPrioritySet,
-    ResearchPriorityTimeoutError,
     build_research_priority_prompt,
     generate_research_priorities,
 )
@@ -571,8 +571,8 @@ def test_api_timeout_raises_distinct_error_and_logs_context(
 
     with caplog.at_level("WARNING"):
         with pytest.raises(
-            ResearchPriorityTimeoutError,
-            match="request timed out",
+            GenerationStepTimeoutError,
+            match="research_priorities",
         ):
             generate_research_priorities(
                 organization,
@@ -596,4 +596,5 @@ def test_api_timeout_raises_distinct_error_and_logs_context(
     assert record.generation_step == "research_priorities"
     assert record.organization_id == 1
     assert record.initiative_id == 10
-    assert record.elapsed_seconds >= 0
+    assert record.step_elapsed_seconds >= 0
+    assert record.workflow_elapsed_seconds >= 0

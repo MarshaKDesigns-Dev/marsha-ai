@@ -10,6 +10,7 @@ the user interface.
 from __future__ import annotations
 
 from collections.abc import Callable
+from time import monotonic
 from typing import Any
 
 from openai import OpenAI
@@ -19,9 +20,14 @@ from services.organization_analysis import (
     OrganizationAnalysis,
     analyze_organization,
 )
+from services.openai_generation_timeout import (
+    ClockCallable,
+    GenerationStepTimeoutError,
+    WORKFLOW_TIME_BUDGET_SECONDS,
+    remaining_request_timeout,
+)
 from services.research_priorities import (
     ResearchPrioritySet,
-    ResearchPriorityTimeoutError,
     generate_research_priorities,
 )
 from services.sponsor_categories import (
@@ -44,6 +50,12 @@ class SponsorshipIntelligenceError(RuntimeError):
 
 class SponsorshipIntelligenceTimeoutError(SponsorshipIntelligenceError):
     """Raised when an intelligence worker exceeds its API deadline."""
+
+    def __init__(self, timeout: GenerationStepTimeoutError) -> None:
+        super().__init__("The sponsorship intelligence workflow timed out.")
+        self.generation_step = timeout.generation_step
+        self.step_elapsed_seconds = timeout.step_elapsed_seconds
+        self.workflow_elapsed_seconds = timeout.workflow_elapsed_seconds
 
 
 class SponsorshipIntelligenceResult(BaseModel):
@@ -86,6 +98,8 @@ def generate_sponsorship_intelligence(
     research_priority_worker: ResearchPriorityWorker = (
         generate_research_priorities
     ),
+    workflow_budget_seconds: float = WORKFLOW_TIME_BUDGET_SECONDS,
+    clock: ClockCallable = monotonic,
 ) -> SponsorshipIntelligenceResult:
     """Run all sponsorship intelligence workers in dependency order.
 
@@ -126,12 +140,26 @@ def generate_sponsorship_intelligence(
             If any worker fails or the aggregate result cannot be validated.
     """
 
+    workflow_started_at = clock()
+
+    def request_timeout_for(generation_step: str) -> float:
+        return remaining_request_timeout(
+            generation_step=generation_step,
+            organization=organization,
+            initiative=initiative,
+            workflow_started_at=workflow_started_at,
+            workflow_budget_seconds=workflow_budget_seconds,
+            clock=clock,
+        )
+
     try:
         analysis = organization_analysis_worker(
             organization,
             initiative,
             client=client,
             model=model,
+            request_timeout=request_timeout_for("organization_analysis"),
+            workflow_started_at=workflow_started_at,
         )
 
         strategy = sponsorship_strategy_worker(
@@ -140,6 +168,8 @@ def generate_sponsorship_intelligence(
             analysis,
             client=client,
             model=model,
+            request_timeout=request_timeout_for("sponsorship_strategy"),
+            workflow_started_at=workflow_started_at,
         )
 
         categories = sponsor_category_worker(
@@ -149,6 +179,8 @@ def generate_sponsorship_intelligence(
             strategy,
             client=client,
             model=model,
+            request_timeout=request_timeout_for("sponsor_categories"),
+            workflow_started_at=workflow_started_at,
         )
 
         assets = sponsorship_asset_worker(
@@ -159,6 +191,8 @@ def generate_sponsorship_intelligence(
             categories,
             client=client,
             model=model,
+            request_timeout=request_timeout_for("sponsorship_assets"),
+            workflow_started_at=workflow_started_at,
         )
 
         research_priorities = research_priority_worker(
@@ -170,6 +204,8 @@ def generate_sponsorship_intelligence(
             assets,
             client=client,
             model=model,
+            request_timeout=request_timeout_for("research_priorities"),
+            workflow_started_at=workflow_started_at,
         )
 
         return SponsorshipIntelligenceResult(
@@ -180,10 +216,8 @@ def generate_sponsorship_intelligence(
             research_priorities=research_priorities,
         )
 
-    except ResearchPriorityTimeoutError as exc:
-        raise SponsorshipIntelligenceTimeoutError(
-            "The sponsorship intelligence workflow timed out."
-        ) from exc
+    except GenerationStepTimeoutError as exc:
+        raise SponsorshipIntelligenceTimeoutError(exc) from exc
 
     except ValidationError as exc:
         raise SponsorshipIntelligenceError(

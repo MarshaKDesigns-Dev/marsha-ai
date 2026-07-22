@@ -1,7 +1,10 @@
 from types import SimpleNamespace
 
+import httpx
 import pytest
+from openai import APITimeoutError
 
+from services.openai_generation_timeout import GenerationStepTimeoutError
 from services.organization_analysis import (
     OrganizationAnalysis,
     OrganizationAnalysisError,
@@ -16,16 +19,24 @@ class FakeResponse:
 
 
 class FakeResponsesAPI:
-    def __init__(self, parsed):
+    def __init__(self, parsed, error=None):
         self._parsed = parsed
+        self._error = error
 
     def parse(self, **kwargs):
+        if self._error:
+            raise self._error
         return FakeResponse(self._parsed)
 
 
 class FakeClient:
-    def __init__(self, parsed):
-        self.responses = FakeResponsesAPI(parsed)
+    def __init__(self, parsed=None, error=None):
+        self.responses = FakeResponsesAPI(parsed, error)
+        self.last_options = None
+
+    def with_options(self, **kwargs):
+        self.last_options = kwargs
+        return self
 
 
 @pytest.fixture
@@ -114,6 +125,7 @@ def test_analysis_returns_valid_model(organization, initiative):
     assert isinstance(result, OrganizationAnalysis)
     assert result.organization_summary.startswith("Community")
     assert result.target_audiences == ["Families"]
+    assert client.last_options == {"timeout": 45.0, "max_retries": 0}
 
 
 def test_invalid_response_raises(organization, initiative):
@@ -125,3 +137,19 @@ def test_invalid_response_raises(organization, initiative):
             initiative,
             client=client,
         )
+
+
+def test_analysis_timeout_preserves_generation_step(
+    organization,
+    initiative,
+):
+    timeout = APITimeoutError(request=httpx.Request("POST", "https://api"))
+
+    with pytest.raises(GenerationStepTimeoutError) as exc_info:
+        analyze_organization(
+            organization,
+            initiative,
+            client=FakeClient(error=timeout),
+        )
+
+    assert exc_info.value.generation_step == "organization_analysis"

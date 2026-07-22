@@ -25,6 +25,7 @@ from services.sponsorship_intelligence import (
     SponsorshipIntelligenceError,
     SponsorshipIntelligenceTimeoutError,
 )
+from services.openai_generation_timeout import GenerationStepTimeoutError
 from services.sponsorship_intelligence_persistence import (
     SponsorshipIntelligencePersistenceError,
 )
@@ -172,7 +173,11 @@ def test_generation_timeout_returns_safe_result_without_persistence():
     def timing_out_orchestrator(org, init, *, client=None, model=None):
         calls["orchestrator"] += 1
         raise SponsorshipIntelligenceTimeoutError(
-            "internal timeout detail"
+            GenerationStepTimeoutError(
+                "sponsorship_assets",
+                step_elapsed_seconds=20.0,
+                workflow_elapsed_seconds=90.0,
+            )
         )
 
     deps, calls = make_deps(orchestrator=timing_out_orchestrator)
@@ -187,6 +192,40 @@ def test_generation_timeout_returns_safe_result_without_persistence():
     )
     assert calls == {"orchestrator": 1, "persist": 0}
     assert "internal" not in result.message.lower()
+    assert result.generation_step == "sponsorship_assets"
+
+
+def test_failed_regeneration_preserves_existing_intelligence():
+    existing_intelligence = {"id": 77, "strategy": "existing strategy"}
+
+    def timing_out_orchestrator(org, init, *, client=None, model=None):
+        calls["orchestrator"] += 1
+        raise SponsorshipIntelligenceTimeoutError(
+            GenerationStepTimeoutError(
+                "research_priorities",
+                step_elapsed_seconds=5.0,
+                workflow_elapsed_seconds=100.0,
+            )
+        )
+
+    deps, calls = make_deps(
+        orchestrator=timing_out_orchestrator,
+        intelligence_exists=lambda init: existing_intelligence is not None,
+    )
+
+    result = generate_workspace_intelligence(
+        1,
+        10,
+        regenerate=True,
+        **deps,
+    )
+
+    assert result.status == STATUS_GENERATION_TIMEOUT
+    assert calls == {"orchestrator": 1, "persist": 0}
+    assert existing_intelligence == {
+        "id": 77,
+        "strategy": "existing strategy",
+    }
 
 
 def test_persistence_failure_returns_controlled_result():

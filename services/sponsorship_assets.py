@@ -16,6 +16,11 @@ from openai import OpenAI
 from pydantic import BaseModel, Field, ValidationError, field_validator
 
 from services.organization_analysis import OrganizationAnalysis
+from services.openai_generation_timeout import (
+    GenerationStepTimeoutError,
+    OPENAI_REQUEST_TIMEOUT_SECONDS,
+    parse_with_timeout,
+)
 from services.sponsor_categories import SponsorCategorySet
 from services.sponsorship_strategy import SponsorshipStrategy
 
@@ -450,6 +455,8 @@ def generate_sponsorship_assets(
     *,
     client: OpenAI | None = None,
     model: str | None = None,
+    request_timeout: float = OPENAI_REQUEST_TIMEOUT_SECONDS,
+    workflow_started_at: float | None = None,
 ) -> SponsorshipAssetSet:
     """Generate validated sponsorship assets."""
 
@@ -465,12 +472,20 @@ def generate_sponsorship_assets(
     selected_model = model or DEFAULT_MODEL
 
     try:
-        response = openai_client.responses.parse(
+        response = parse_with_timeout(
+            client=openai_client,
+            generation_step="sponsorship_assets",
+            organization=organization,
+            initiative=initiative,
+            request_timeout=request_timeout,
+            workflow_started_at=workflow_started_at,
             model=selected_model,
             instructions=SYSTEM_INSTRUCTIONS,
             input=prompt,
             text_format=SponsorshipAssetSet,
         )
+    except GenerationStepTimeoutError:
+        raise
     except Exception as exc:
         raise SponsorshipAssetGenerationError(
             "The sponsorship asset request could not be completed."

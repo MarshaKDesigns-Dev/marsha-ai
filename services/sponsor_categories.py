@@ -17,6 +17,11 @@ from openai import OpenAI
 from pydantic import BaseModel, Field, ValidationError, field_validator
 
 from services.organization_analysis import OrganizationAnalysis
+from services.openai_generation_timeout import (
+    GenerationStepTimeoutError,
+    OPENAI_REQUEST_TIMEOUT_SECONDS,
+    parse_with_timeout,
+)
 from services.sponsorship_strategy import SponsorshipStrategy
 
 
@@ -387,6 +392,8 @@ def generate_sponsor_categories(
     *,
     client: OpenAI | None = None,
     model: str | None = None,
+    request_timeout: float = OPENAI_REQUEST_TIMEOUT_SECONDS,
+    workflow_started_at: float | None = None,
 ) -> SponsorCategorySet:
     """Generate validated sponsor categories.
 
@@ -429,12 +436,20 @@ def generate_sponsor_categories(
     selected_model = model or DEFAULT_MODEL
 
     try:
-        response = openai_client.responses.parse(
+        response = parse_with_timeout(
+            client=openai_client,
+            generation_step="sponsor_categories",
+            organization=organization,
+            initiative=initiative,
+            request_timeout=request_timeout,
+            workflow_started_at=workflow_started_at,
             model=selected_model,
             instructions=SYSTEM_INSTRUCTIONS,
             input=prompt,
             text_format=SponsorCategorySet,
         )
+    except GenerationStepTimeoutError:
+        raise
     except Exception as exc:
         raise SponsorCategoryGenerationError(
             "The sponsor category request could not be completed."
