@@ -1,12 +1,15 @@
 from types import SimpleNamespace
 
+import httpx
 import pytest
+from openai import APITimeoutError
 
 from services.organization_analysis import OrganizationAnalysis
 from services.research_priorities import (
     ResearchPriorityGenerationError,
     ResearchPriorityRecommendation,
     ResearchPrioritySet,
+    ResearchPriorityTimeoutError,
     build_research_priority_prompt,
     generate_research_priorities,
 )
@@ -50,11 +53,17 @@ class FakeClient:
             parsed=parsed,
             error=error,
         )
+        self.last_options = None
+
+    def with_options(self, **kwargs):
+        self.last_options = kwargs
+        return self
 
 
 @pytest.fixture
 def organization():
     return SimpleNamespace(
+        id=1,
         name="Community Arts Center",
         organization_type="Nonprofit",
         location="Durham, NC",
@@ -65,6 +74,8 @@ def organization():
 @pytest.fixture
 def initiative():
     return SimpleNamespace(
+        id=10,
+        organization_id=1,
         name="Summer Arts Festival",
         fundraising_target="$50,000",
         deadline=None,
@@ -483,6 +494,10 @@ def test_generate_returns_model(
         client.responses.last_kwargs["text_format"]
         is ResearchPrioritySet
     )
+    assert client.last_options == {
+        "timeout": 45.0,
+        "max_retries": 0,
+    }
 
 
 def test_missing_response_raises(
@@ -535,3 +550,50 @@ def test_api_failure_raises(
             assets,
             client=client,
         )
+
+
+def test_api_timeout_raises_distinct_error_and_logs_context(
+    organization,
+    initiative,
+    analysis,
+    strategy,
+    categories,
+    assets,
+    caplog,
+):
+    timeout = APITimeoutError(
+        request=httpx.Request(
+            "POST",
+            "https://api.openai.com/v1/responses",
+        )
+    )
+    client = FakeClient(error=timeout)
+
+    with caplog.at_level("WARNING"):
+        with pytest.raises(
+            ResearchPriorityTimeoutError,
+            match="request timed out",
+        ):
+            generate_research_priorities(
+                organization,
+                initiative,
+                analysis,
+                strategy,
+                categories,
+                assets,
+                client=client,
+            )
+
+    assert client.last_options == {
+        "timeout": 45.0,
+        "max_retries": 0,
+    }
+    record = next(
+        item
+        for item in caplog.records
+        if item.getMessage() == "openai_generation_step_timed_out"
+    )
+    assert record.generation_step == "research_priorities"
+    assert record.organization_id == 1
+    assert record.initiative_id == 10
+    assert record.elapsed_seconds >= 0

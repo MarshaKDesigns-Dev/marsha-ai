@@ -21,6 +21,7 @@ from services.organization_analysis import (
 )
 from services.research_priorities import (
     ResearchPrioritySet,
+    ResearchPriorityTimeoutError,
     generate_research_priorities,
 )
 from services.sponsor_categories import (
@@ -39,6 +40,10 @@ from services.sponsorship_strategy import (
 
 class SponsorshipIntelligenceError(RuntimeError):
     """Raised when the sponsorship intelligence workflow cannot complete."""
+
+
+class SponsorshipIntelligenceTimeoutError(SponsorshipIntelligenceError):
+    """Raised when an intelligence worker exceeds its API deadline."""
 
 
 class SponsorshipIntelligenceResult(BaseModel):
@@ -174,6 +179,11 @@ def generate_sponsorship_intelligence(
             sponsorship_assets=assets,
             research_priorities=research_priorities,
         )
+
+    except ResearchPriorityTimeoutError as exc:
+        raise SponsorshipIntelligenceTimeoutError(
+            "The sponsorship intelligence workflow timed out."
+        ) from exc
 
     except ValidationError as exc:
         raise SponsorshipIntelligenceError(

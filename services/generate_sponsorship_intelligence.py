@@ -24,6 +24,7 @@ from openai import OpenAI
 from services.sponsorship_intelligence import (
     SponsorshipIntelligenceError,
     SponsorshipIntelligenceResult,
+    SponsorshipIntelligenceTimeoutError,
     generate_sponsorship_intelligence,
 )
 from services.sponsorship_intelligence_persistence import (
@@ -38,6 +39,7 @@ STATUS_ORGANIZATION_NOT_FOUND = "organization_not_found"
 STATUS_INITIATIVE_NOT_FOUND = "initiative_not_found"
 STATUS_OWNERSHIP_MISMATCH = "ownership_mismatch"
 STATUS_ALREADY_EXISTS = "already_exists"
+STATUS_GENERATION_TIMEOUT = "generation_timeout"
 STATUS_GENERATION_FAILED = "generation_failed"
 STATUS_PERSISTENCE_FAILED = "persistence_failed"
 
@@ -215,6 +217,16 @@ def generate_workspace_intelligence(
             initiative,
             client=client,
             model=model,
+        )
+    except SponsorshipIntelligenceTimeoutError:
+        return GenerationResult(
+            success=False,
+            status=STATUS_GENERATION_TIMEOUT,
+            message=(
+                "Sponsorship intelligence generation took too long. "
+                "Please try again."
+            ),
+            errors=[STATUS_GENERATION_TIMEOUT],
         )
     except SponsorshipIntelligenceError:
         return GenerationResult(

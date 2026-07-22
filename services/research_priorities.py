@@ -10,10 +10,12 @@ The service does not write to the database and does not research companies.
 
 from __future__ import annotations
 
+import logging
 import os
+from time import monotonic
 from typing import Any
 
-from openai import OpenAI
+from openai import APITimeoutError, OpenAI
 from pydantic import BaseModel, Field, ValidationError, field_validator
 
 from services.organization_analysis import OrganizationAnalysis
@@ -23,10 +25,15 @@ from services.sponsorship_strategy import SponsorshipStrategy
 
 
 DEFAULT_MODEL = os.getenv("OPENAI_MODEL", "gpt-5-mini")
+logger = logging.getLogger(__name__)
 
 
 class ResearchPriorityGenerationError(RuntimeError):
     """Raised when research priority generation cannot be completed."""
+
+
+class ResearchPriorityTimeoutError(ResearchPriorityGenerationError):
+    """Raised when research priority generation exceeds its API deadline."""
 
 
 class ResearchPriorityRecommendation(BaseModel):
@@ -563,14 +570,33 @@ def generate_research_priorities(
 
     openai_client = client or OpenAI()
     selected_model = model or DEFAULT_MODEL
+    request_started_at = monotonic()
 
     try:
-        response = openai_client.responses.parse(
+        request_client = openai_client.with_options(
+            timeout=45.0,
+            max_retries=0,
+        )
+        response = request_client.responses.parse(
             model=selected_model,
             instructions=SYSTEM_INSTRUCTIONS,
             input=prompt,
             text_format=ResearchPrioritySet,
         )
+    except APITimeoutError as exc:
+        elapsed_seconds = monotonic() - request_started_at
+        logger.warning(
+            "openai_generation_step_timed_out",
+            extra={
+                "generation_step": "research_priorities",
+                "organization_id": getattr(organization, "id", None),
+                "initiative_id": getattr(initiative, "id", None),
+                "elapsed_seconds": round(elapsed_seconds, 3),
+            },
+        )
+        raise ResearchPriorityTimeoutError(
+            "The research priority request timed out."
+        ) from exc
     except Exception as exc:
         raise ResearchPriorityGenerationError(
             "The research priority request could not be completed."

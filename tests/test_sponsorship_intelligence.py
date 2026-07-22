@@ -7,12 +7,16 @@ import pytest
 from pydantic import ValidationError
 
 from services.organization_analysis import OrganizationAnalysis
-from services.research_priorities import ResearchPrioritySet
+from services.research_priorities import (
+    ResearchPrioritySet,
+    ResearchPriorityTimeoutError,
+)
 from services.sponsor_categories import SponsorCategorySet
 from services.sponsorship_assets import SponsorshipAssetSet
 from services.sponsorship_intelligence import (
     SponsorshipIntelligenceError,
     SponsorshipIntelligenceResult,
+    SponsorshipIntelligenceTimeoutError,
     generate_sponsorship_intelligence,
 )
 from services.sponsorship_strategy import SponsorshipStrategy
@@ -136,8 +140,7 @@ def test_orchestrator_runs_workers_in_dependency_order(
     ]
 
     assert isinstance(result, SponsorshipIntelligenceResult)
-
-
+    assert result.research_priorities is research_priorities
 def test_orchestrator_returns_all_worker_results(
     organization,
     initiative,
@@ -328,6 +331,33 @@ def test_workflow_stops_after_failure(
     research_worker.assert_not_called()
 
 
+def test_research_timeout_remains_distinct_through_orchestrator(
+    organization,
+    initiative,
+    analysis,
+    strategy,
+    categories,
+    assets,
+):
+    with pytest.raises(
+        SponsorshipIntelligenceTimeoutError,
+        match="workflow timed out",
+    ):
+        generate_sponsorship_intelligence(
+            organization,
+            initiative,
+            organization_analysis_worker=Mock(return_value=analysis),
+            sponsorship_strategy_worker=Mock(return_value=strategy),
+            sponsor_category_worker=Mock(return_value=categories),
+            sponsorship_asset_worker=Mock(return_value=assets),
+            research_priority_worker=Mock(
+                side_effect=ResearchPriorityTimeoutError(
+                    "The research priority request timed out."
+                )
+            ),
+        )
+
+
 def test_invalid_worker_result_is_rejected(
     organization,
     initiative,
@@ -408,4 +438,4 @@ def test_orchestrator_does_not_require_flask_context(
     )
 
     assert isinstance(result, SponsorshipIntelligenceResult)
-    
+    assert result.research_priorities is research_priorities

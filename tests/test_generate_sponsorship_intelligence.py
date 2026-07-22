@@ -13,6 +13,7 @@ from services.generate_sponsorship_intelligence import (
     STATUS_ALREADY_EXISTS,
     STATUS_GENERATED,
     STATUS_GENERATION_FAILED,
+    STATUS_GENERATION_TIMEOUT,
     STATUS_INITIATIVE_NOT_FOUND,
     STATUS_ORGANIZATION_NOT_FOUND,
     STATUS_OWNERSHIP_MISMATCH,
@@ -20,7 +21,10 @@ from services.generate_sponsorship_intelligence import (
     GenerationResult,
     generate_workspace_intelligence,
 )
-from services.sponsorship_intelligence import SponsorshipIntelligenceError
+from services.sponsorship_intelligence import (
+    SponsorshipIntelligenceError,
+    SponsorshipIntelligenceTimeoutError,
+)
 from services.sponsorship_intelligence_persistence import (
     SponsorshipIntelligencePersistenceError,
 )
@@ -162,6 +166,27 @@ def test_generation_failure_returns_controlled_result():
     assert calls["persist"] == 0
     # Raw provider detail must not leak into the user-facing message.
     assert "sensitive" not in result.message.lower()
+
+
+def test_generation_timeout_returns_safe_result_without_persistence():
+    def timing_out_orchestrator(org, init, *, client=None, model=None):
+        calls["orchestrator"] += 1
+        raise SponsorshipIntelligenceTimeoutError(
+            "internal timeout detail"
+        )
+
+    deps, calls = make_deps(orchestrator=timing_out_orchestrator)
+
+    result = generate_workspace_intelligence(1, 10, **deps)
+
+    assert result.success is False
+    assert result.status == STATUS_GENERATION_TIMEOUT
+    assert result.message == (
+        "Sponsorship intelligence generation took too long. "
+        "Please try again."
+    )
+    assert calls == {"orchestrator": 1, "persist": 0}
+    assert "internal" not in result.message.lower()
 
 
 def test_persistence_failure_returns_controlled_result():

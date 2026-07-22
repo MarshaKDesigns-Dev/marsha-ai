@@ -126,6 +126,47 @@ def test_generation_route_returns_safe_service_error(monkeypatch):
     ]
 
 
+def test_generation_route_displays_timeout_message(monkeypatch):
+    organization = SimpleNamespace(id=1)
+    initiative = SimpleNamespace(id=10, organization_id=1)
+    timeout_message = (
+        "Sponsorship intelligence generation took too long. "
+        "Please try again."
+    )
+
+    monkeypatch.setattr(
+        app_module,
+        "get_active_organization",
+        lambda: organization,
+    )
+    monkeypatch.setattr(
+        app_module,
+        "get_active_initiative",
+        lambda: initiative,
+    )
+    monkeypatch.setattr(
+        app_module,
+        "run_workspace_intelligence_generation",
+        lambda *args, **kwargs: SimpleNamespace(
+            success=False,
+            message=timeout_message,
+        ),
+    )
+
+    with app_module.app.test_request_context(
+        "/workspace/generate-intelligence",
+        method="POST",
+    ):
+        response = (
+            app_module.generate_workspace_sponsorship_intelligence()
+        )
+        flashed = app_module.session.get("_flashes")
+
+    assert response.status_code == 302
+    assert response.location.endswith("/workspace")
+    assert flashed == [("warning", timeout_message)]
+
+
 def test_workspace_loads_all_persisted_intelligence(monkeypatch):
     organization = SimpleNamespace(id=1)
     initiative = SimpleNamespace(id=10, organization_id=1)
