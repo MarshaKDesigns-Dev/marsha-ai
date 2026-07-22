@@ -140,6 +140,72 @@ class SponsorshipInitiative(db.Model):
         onupdate=datetime.utcnow
     )
 
+
+class SponsorshipIntelligenceJob(db.Model):
+    """Durable background job for one intelligence generation attempt."""
+
+    id = db.Column(db.Integer, primary_key=True)
+    organization_id = db.Column(
+        db.Integer,
+        db.ForeignKey("organization.id"),
+        nullable=False,
+    )
+    initiative_id = db.Column(
+        db.Integer,
+        db.ForeignKey("sponsorship_initiative.id"),
+        nullable=False,
+    )
+    status = db.Column(db.String(20), nullable=False, default="pending")
+    regenerate = db.Column(db.Boolean, nullable=False, default=False)
+    generation_step = db.Column(db.String(100))
+    error_code = db.Column(db.String(100))
+    message = db.Column(db.Text)
+    attempt_count = db.Column(db.Integer, nullable=False, default=0)
+    worker_id = db.Column(db.String(255))
+    active_key = db.Column(db.String(255), nullable=True, unique=True)
+    available_at = db.Column(
+        db.DateTime(timezone=True),
+        nullable=False,
+        default=lambda: datetime.now(UTC),
+    )
+    lease_expires_at = db.Column(db.DateTime(timezone=True))
+    created_at = db.Column(
+        db.DateTime(timezone=True),
+        nullable=False,
+        default=lambda: datetime.now(UTC),
+    )
+    started_at = db.Column(db.DateTime(timezone=True))
+    completed_at = db.Column(db.DateTime(timezone=True))
+    updated_at = db.Column(
+        db.DateTime(timezone=True),
+        nullable=False,
+        default=lambda: datetime.now(UTC),
+        onupdate=lambda: datetime.now(UTC),
+    )
+
+    __table_args__ = (
+        db.CheckConstraint(
+            "status IN ('pending', 'processing', 'completed', 'failed')",
+            name="ck_intelligence_job_status",
+        ),
+        db.Index(
+            "ix_intelligence_job_pending_lookup",
+            "status",
+            "available_at",
+        ),
+        db.Index(
+            "ix_intelligence_job_initiative_history",
+            "organization_id",
+            "initiative_id",
+            "created_at",
+        ),
+        db.Index(
+            "ix_intelligence_job_lease_recovery",
+            "status",
+            "lease_expires_at",
+        ),
+    )
+
 class SponsorshipIntelligence(db.Model):
     """Persisted high-level AI analysis and strategy for an initiative."""
 
@@ -703,6 +769,37 @@ def run_workspace_intelligence_generation(
         initiative_id,
         regenerate=regenerate,
     )
+
+
+def enqueue_workspace_intelligence_generation(
+    organization,
+    initiative,
+    *,
+    regenerate=False,
+):
+    """Create or reuse one durable background generation job."""
+
+    from services.sponsorship_intelligence_jobs import enqueue_job
+
+    return enqueue_job(
+        organization,
+        initiative,
+        regenerate=regenerate,
+    )
+
+
+def get_workspace_intelligence_job(organization, initiative):
+    """Return the active job, or the latest historical job when inactive."""
+
+    from services.sponsorship_intelligence_jobs import (
+        get_active_job,
+        get_latest_job,
+    )
+
+    active_job = get_active_job(organization.id, initiative.id)
+    if active_job is not None:
+        return active_job
+    return get_latest_job(organization.id, initiative.id)
 
 
 def get_prospect_key(category, index):
@@ -1284,6 +1381,10 @@ def workspace():
         organization,
         initiative,
     )
+    generation_job = get_workspace_intelligence_job(
+        organization,
+        initiative,
+    )
 
     return render_template(
         "workspace.html",
@@ -1292,6 +1393,7 @@ def workspace():
         initiative=initiative,
         data=data,
         intelligence=intelligence,
+        generation_job=generation_job,
         categories=(
             get_sponsor_categories(organization, initiative)
             if intelligence
@@ -1323,13 +1425,26 @@ def generate_workspace_sponsorship_intelligence():
         )
         return redirect(url_for("setup"))
 
-    result = run_workspace_intelligence_generation(
-        organization.id,
-        initiative.id,
+    if initiative.organization_id != organization.id:
+        flash(
+            "The sponsorship initiative does not belong to the organization.",
+            "warning",
+        )
+        return redirect(url_for("workspace"))
+
+    _, created = enqueue_workspace_intelligence_generation(
+        organization,
+        initiative,
         regenerate=request.form.get("regenerate") == "true",
     )
 
-    flash(result.message, "success" if result.success else "warning")
+    if created:
+        flash("Sponsorship intelligence generation started.", "success")
+    else:
+        flash(
+            "Sponsorship intelligence generation is already in progress.",
+            "warning",
+        )
     return redirect(url_for("workspace"))
 
 

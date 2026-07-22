@@ -95,6 +95,33 @@ def test_happy_path_generates_and_persists():
     assert calls == {"orchestrator": 1, "persist": 1}
 
 
+def test_caller_supplied_workflow_budget_is_passed_to_orchestrator():
+    captured = {}
+
+    def orchestrator(
+        org,
+        init,
+        *,
+        client=None,
+        model=None,
+        workflow_budget_seconds=None,
+    ):
+        captured["workflow_budget_seconds"] = workflow_budget_seconds
+        return SENTINEL_RESULT
+
+    deps, _ = make_deps(orchestrator=orchestrator)
+
+    result = generate_workspace_intelligence(
+        1,
+        10,
+        workflow_budget_seconds=240.0,
+        **deps,
+    )
+
+    assert result.success is True
+    assert captured["workflow_budget_seconds"] == 240.0
+
+
 def test_missing_organization_stops_before_generation():
     deps, calls = make_deps(load_organization=lambda organization_id: None)
 

@@ -4,7 +4,8 @@ This service accepts one completed SponsorshipIntelligenceResult and stores its
 contents for an existing organization and sponsorship initiative.
 
 The service does not call OpenAI, render templates, or depend on a Flask route.
-All database changes are committed as one transaction.
+All database changes are written as one transaction. By default this service
+commits it; a background worker may retain transaction ownership.
 """
 
 from __future__ import annotations
@@ -213,6 +214,7 @@ def persist_sponsorship_intelligence(
     result: SponsorshipIntelligenceResult,
     *,
     session: Session | None = None,
+    commit: bool = True,
 ) -> SponsorshipIntelligence:
     """Persist one complete sponsorship intelligence result.
 
@@ -236,6 +238,10 @@ def persist_sponsorship_intelligence(
 
         session:
             Optional SQLAlchemy session used primarily for isolated tests.
+
+        commit:
+            Commit immediately when True. When False, flush the complete
+            replacement so the caller can commit it with related job state.
 
     Returns:
         The created or updated SponsorshipIntelligence database record.
@@ -294,7 +300,10 @@ def persist_sponsorship_intelligence(
             result,
         )
 
-        database_session.commit()
+        if commit:
+            database_session.commit()
+        else:
+            database_session.flush()
 
         return intelligence_record
 
@@ -308,4 +317,3 @@ def persist_sponsorship_intelligence(
         raise SponsorshipIntelligencePersistenceError(
             "The sponsorship intelligence transaction could not be completed."
         ) from exc
-        

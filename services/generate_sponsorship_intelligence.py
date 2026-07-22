@@ -115,6 +115,7 @@ def generate_workspace_intelligence(
     intelligence_exists: IntelligenceExistsCallable = (
         _default_intelligence_exists
     ),
+    workflow_budget_seconds: float | None = None,
     now: ClockCallable = datetime.utcnow,
 ) -> GenerationResult:
     """Generate and persist sponsorship intelligence for a workspace request.
@@ -213,11 +214,18 @@ def generate_workspace_intelligence(
         )
 
     try:
+        orchestrator_options = {
+            "client": client,
+            "model": model,
+        }
+        if workflow_budget_seconds is not None:
+            orchestrator_options["workflow_budget_seconds"] = (
+                workflow_budget_seconds
+            )
         result = orchestrator(
             organization,
             initiative,
-            client=client,
-            model=model,
+            **orchestrator_options,
         )
     except SponsorshipIntelligenceTimeoutError as exc:
         return GenerationResult(

@@ -420,6 +420,27 @@ def test_persistence_saves_complete_intelligence_package(
     session.rollback.assert_not_called()
 
 
+def test_persistence_can_flush_without_committing(
+    organization,
+    initiative,
+    intelligence_result,
+):
+    session = MagicMock()
+    session.scalar.return_value = None
+
+    persist_sponsorship_intelligence(
+        organization,
+        initiative,
+        intelligence_result,
+        session=session,
+        commit=False,
+    )
+
+    session.flush.assert_called_once()
+    session.commit.assert_not_called()
+    session.rollback.assert_not_called()
+
+
 def test_persistence_updates_existing_intelligence_record(
     organization,
     initiative,

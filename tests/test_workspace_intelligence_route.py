@@ -1,9 +1,10 @@
 from types import SimpleNamespace
 
 import app as app_module
+import pytest
 
 
-def test_generation_route_calls_existing_application_service(monkeypatch):
+def test_generation_route_enqueues_without_synchronous_generation(monkeypatch):
     organization = SimpleNamespace(id=1)
     initiative = SimpleNamespace(id=10, organization_id=1)
     calls = []
@@ -19,17 +20,21 @@ def test_generation_route_calls_existing_application_service(monkeypatch):
         lambda: initiative,
     )
 
-    def generate(organization_id, initiative_id, *, regenerate=False):
-        calls.append((organization_id, initiative_id, regenerate))
-        return SimpleNamespace(
-            success=True,
-            message="Sponsorship intelligence was generated and saved.",
-        )
+    def enqueue(org, init, *, regenerate=False):
+        calls.append((org.id, init.id, regenerate))
+        return SimpleNamespace(status="pending"), True
 
     monkeypatch.setattr(
         app_module,
+        "enqueue_workspace_intelligence_generation",
+        enqueue,
+    )
+    monkeypatch.setattr(
+        app_module,
         "run_workspace_intelligence_generation",
-        generate,
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("synchronous generation must not run")
+        ),
     )
 
     with app_module.app.test_request_context(
@@ -61,14 +66,14 @@ def test_generation_route_passes_explicit_regenerate(monkeypatch):
         lambda: initiative,
     )
 
-    def generate(organization_id, initiative_id, *, regenerate=False):
-        calls.append((organization_id, initiative_id, regenerate))
-        return SimpleNamespace(success=True, message="Regenerated.")
+    def enqueue(org, init, *, regenerate=False):
+        calls.append((org.id, init.id, regenerate))
+        return SimpleNamespace(status="pending"), True
 
     monkeypatch.setattr(
         app_module,
-        "run_workspace_intelligence_generation",
-        generate,
+        "enqueue_workspace_intelligence_generation",
+        enqueue,
     )
 
     with app_module.app.test_request_context(
@@ -81,7 +86,7 @@ def test_generation_route_passes_explicit_regenerate(monkeypatch):
     assert calls == [(1, 10, True)]
 
 
-def test_generation_route_returns_safe_service_error(monkeypatch):
+def test_duplicate_generation_route_flashes_already_in_progress(monkeypatch):
     organization = SimpleNamespace(id=1)
     initiative = SimpleNamespace(id=10, organization_id=1)
 
@@ -97,13 +102,10 @@ def test_generation_route_returns_safe_service_error(monkeypatch):
     )
     monkeypatch.setattr(
         app_module,
-        "run_workspace_intelligence_generation",
-        lambda *args, **kwargs: SimpleNamespace(
-            success=False,
-            message=(
-                "Sponsorship intelligence could not be generated. "
-                "Please try again."
-            ),
+        "enqueue_workspace_intelligence_generation",
+        lambda *args, **kwargs: (
+            SimpleNamespace(status="processing"),
+            False,
         ),
     )
 
@@ -120,19 +122,15 @@ def test_generation_route_returns_safe_service_error(monkeypatch):
     assert flashed == [
         (
             "warning",
-            "Sponsorship intelligence could not be generated. "
-            "Please try again.",
+            "Sponsorship intelligence generation is already in progress.",
         )
     ]
 
 
-def test_generation_route_displays_timeout_message(monkeypatch):
+def test_generation_route_rejects_ownership_mismatch(monkeypatch):
     organization = SimpleNamespace(id=1)
-    initiative = SimpleNamespace(id=10, organization_id=1)
-    timeout_message = (
-        "Sponsorship intelligence generation took too long. "
-        "Please try again."
-    )
+    initiative = SimpleNamespace(id=10, organization_id=99)
+    enqueue_calls = []
 
     monkeypatch.setattr(
         app_module,
@@ -146,28 +144,28 @@ def test_generation_route_displays_timeout_message(monkeypatch):
     )
     monkeypatch.setattr(
         app_module,
-        "run_workspace_intelligence_generation",
-        lambda *args, **kwargs: SimpleNamespace(
-            success=False,
-            message=timeout_message,
-        ),
+        "enqueue_workspace_intelligence_generation",
+        lambda *args, **kwargs: enqueue_calls.append(args),
     )
 
     with app_module.app.test_request_context(
         "/workspace/generate-intelligence",
         method="POST",
     ):
-        response = (
-            app_module.generate_workspace_sponsorship_intelligence()
-        )
+        response = app_module.generate_workspace_sponsorship_intelligence()
         flashed = app_module.session.get("_flashes")
 
     assert response.status_code == 302
-    assert response.location.endswith("/workspace")
-    assert flashed == [("warning", timeout_message)]
+    assert flashed == [
+        (
+            "warning",
+            "The sponsorship initiative does not belong to the organization.",
+        )
+    ]
+    assert enqueue_calls == []
 
 
-def test_timeout_message_renders_after_redirect(monkeypatch):
+def test_generation_started_message_renders_after_redirect(monkeypatch):
     organization = SimpleNamespace(
         id=1,
         name="Community Arts Center",
@@ -178,10 +176,7 @@ def test_timeout_message_renders_after_redirect(monkeypatch):
         organization_id=1,
         name="Summer Arts Festival",
     )
-    timeout_message = (
-        "Sponsorship intelligence generation took too long. "
-        "Please try again."
-    )
+    started_message = "Sponsorship intelligence generation started."
 
     monkeypatch.setattr(
         app_module,
@@ -195,10 +190,10 @@ def test_timeout_message_renders_after_redirect(monkeypatch):
     )
     monkeypatch.setattr(
         app_module,
-        "run_workspace_intelligence_generation",
-        lambda *args, **kwargs: SimpleNamespace(
-            success=False,
-            message=timeout_message,
+        "enqueue_workspace_intelligence_generation",
+        lambda *args, **kwargs: (
+            SimpleNamespace(status="pending"),
+            True,
         ),
     )
     monkeypatch.setattr(
@@ -224,6 +219,11 @@ def test_timeout_message_renders_after_redirect(monkeypatch):
     )
     monkeypatch.setattr(
         app_module,
+        "get_workspace_intelligence_job",
+        lambda org, init: SimpleNamespace(status="pending", message=None),
+    )
+    monkeypatch.setattr(
+        app_module,
         "Opportunity",
         SimpleNamespace(query=SimpleNamespace(all=lambda: [])),
     )
@@ -237,8 +237,49 @@ def test_timeout_message_renders_after_redirect(monkeypatch):
     html = response.get_data(as_text=True)
     assert response.status_code == 200
     assert response.request.path == "/workspace"
-    assert timeout_message in html
-    assert 'class="alert alert-warning"' in html
+    assert started_message in html
+    assert 'class="alert alert-success"' in html
+    assert "Sponsorship intelligence generation is queued." in html
+
+
+@pytest.mark.parametrize(
+    ("status", "message", "expected"),
+    [
+        (
+            "processing",
+            None,
+            "Sponsorship intelligence is being generated.",
+        ),
+        (
+            "failed",
+            "Safe generation failure.",
+            "Safe generation failure.",
+        ),
+    ],
+)
+def test_workspace_renders_generation_job_status(status, message, expected):
+    with app_module.app.test_request_context("/workspace"):
+        html = app_module.render_template(
+            "workspace.html",
+            org={},
+            organization=SimpleNamespace(
+                name="Community Arts Center",
+                location="Durham, NC",
+            ),
+            initiative=SimpleNamespace(name="Summer Arts Festival"),
+            data={},
+            intelligence=None,
+            generation_job=SimpleNamespace(
+                status=status,
+                message=message,
+            ),
+            categories=[],
+            assets=[],
+            research_priorities=[],
+            pipeline=[],
+        )
+
+    assert expected in html
 
 
 def test_workspace_loads_all_persisted_intelligence(monkeypatch):
@@ -277,6 +318,14 @@ def test_workspace_loads_all_persisted_intelligence(monkeypatch):
     )
     monkeypatch.setattr(
         app_module,
+        "get_workspace_intelligence_job",
+        lambda org, init: SimpleNamespace(
+            status="processing",
+            message=None,
+        ),
+    )
+    monkeypatch.setattr(
+        app_module,
         "get_sponsor_categories",
         lambda org, init: categories,
     )
@@ -312,6 +361,8 @@ def test_workspace_loads_all_persisted_intelligence(monkeypatch):
     assert rendered["categories"] is categories
     assert rendered["assets"] is assets
     assert rendered["research_priorities"] is priorities
+    assert rendered["generation_job"].status == "processing"
+    assert rendered["intelligence"] is intelligence
 
 
 def test_workspace_template_exposes_generated_intelligence():
@@ -327,3 +378,5 @@ def test_workspace_template_exposes_generated_intelligence():
     assert "PROSPECT RESEARCH QUEUE" in template
     assert "CURRENT SPONSORSHIP ASSETS" in template
     assert "RESEARCH PRIORITIES" in template
+    assert "Sponsorship intelligence generation is queued." in template
+    assert "Sponsorship intelligence is being generated." in template

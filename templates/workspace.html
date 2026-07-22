@@ -6,6 +6,20 @@
 
 {% block content %}
 
+{% if generation_job and generation_job.status == 'pending' %}
+<div class="alert alert-info" role="alert">
+  Sponsorship intelligence generation is queued.
+</div>
+{% elif generation_job and generation_job.status == 'processing' %}
+<div class="alert alert-info" role="alert">
+  Sponsorship intelligence is being generated.
+</div>
+{% elif generation_job and generation_job.status == 'failed' %}
+<div class="alert alert-warning" role="alert">
+  {{ generation_job.message }}
+</div>
+{% endif %}
+
 <div class="d-flex flex-wrap justify-content-between align-items-start gap-3 mb-4">
   <div>
     <div class="eyebrow">ACTIVE SPONSORSHIP INITIATIVE</div>
