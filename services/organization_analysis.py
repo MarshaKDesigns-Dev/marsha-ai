@@ -10,6 +10,7 @@ The service does not write to the database.
 from __future__ import annotations
 
 import os
+from collections.abc import Callable
 from typing import Any
 
 from openai import OpenAI
@@ -220,6 +221,7 @@ def analyze_organization(
     model: str | None = None,
     request_timeout: float = OPENAI_REQUEST_TIMEOUT_SECONDS,
     workflow_started_at: float | None = None,
+    lifecycle_logger: Callable[[str], None] | None = None,
 ) -> OrganizationAnalysis:
     """Analyze an organization and initiative using structured AI output.
 
@@ -251,18 +253,27 @@ def analyze_organization(
     selected_model = model or DEFAULT_MODEL
 
     try:
-        response = parse_with_timeout(
-            client=openai_client,
-            generation_step="organization_analysis",
-            organization=organization,
-            initiative=initiative,
-            request_timeout=request_timeout,
-            workflow_started_at=workflow_started_at,
-            model=selected_model,
-            instructions=SYSTEM_INSTRUCTIONS,
-            input=prompt,
-            text_format=OrganizationAnalysis,
-        )
+        try:
+            if lifecycle_logger is not None:
+                lifecycle_logger("before_openai_request")
+            response = parse_with_timeout(
+                client=openai_client,
+                generation_step="organization_analysis",
+                organization=organization,
+                initiative=initiative,
+                request_timeout=request_timeout,
+                workflow_started_at=workflow_started_at,
+                model=selected_model,
+                instructions=SYSTEM_INSTRUCTIONS,
+                input=prompt,
+                text_format=OrganizationAnalysis,
+            )
+            if lifecycle_logger is not None:
+                lifecycle_logger("after_openai_request")
+        except BaseException:
+            if lifecycle_logger is not None:
+                lifecycle_logger("openai_request_exception")
+            raise
     except GenerationStepTimeoutError:
         raise
     except Exception as exc:

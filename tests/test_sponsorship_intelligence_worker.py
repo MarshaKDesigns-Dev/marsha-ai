@@ -264,6 +264,8 @@ def test_worker_emits_persistence_and_completion_lifecycle_logs_in_order(
 
     def generate(*args, lifecycle_logger, persist, **kwargs):
         lifecycle_logger("organization_analysis_started")
+        lifecycle_logger("before_openai_request")
+        lifecycle_logger("after_openai_request")
         lifecycle_logger("organization_analysis_completed")
         persist(MagicMock(), MagicMock(), MagicMock())
         return SimpleNamespace(success=True)
@@ -282,6 +284,8 @@ def test_worker_emits_persistence_and_completion_lifecycle_logs_in_order(
     output = stream.getvalue()
     expected = [
         "organization_analysis_started",
+        "before_openai_request",
+        "after_openai_request",
         "organization_analysis_completed",
         "persist_sponsorship_intelligence_started",
         "persist_sponsorship_intelligence_completed",

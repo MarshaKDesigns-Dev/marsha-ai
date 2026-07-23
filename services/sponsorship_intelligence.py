@@ -160,13 +160,18 @@ def generate_sponsorship_intelligence(
 
     try:
         log_lifecycle("organization_analysis_started")
+        analysis_options = {
+            "client": client,
+            "model": model,
+            "request_timeout": request_timeout_for("organization_analysis"),
+            "workflow_started_at": workflow_started_at,
+        }
+        if lifecycle_logger is not None:
+            analysis_options["lifecycle_logger"] = lifecycle_logger
         analysis = organization_analysis_worker(
             organization,
             initiative,
-            client=client,
-            model=model,
-            request_timeout=request_timeout_for("organization_analysis"),
-            workflow_started_at=workflow_started_at,
+            **analysis_options,
         )
         log_lifecycle("organization_analysis_completed")
 

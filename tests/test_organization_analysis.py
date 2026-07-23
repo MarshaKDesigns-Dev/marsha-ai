@@ -128,6 +128,51 @@ def test_analysis_returns_valid_model(organization, initiative):
     assert client.last_options == {"timeout": 45.0, "max_retries": 0}
 
 
+def test_openai_request_lifecycle_events(organization, initiative):
+    parsed = OrganizationAnalysis.model_construct()
+    events = []
+
+    analyze_organization(
+        organization,
+        initiative,
+        client=FakeClient(parsed),
+        lifecycle_logger=events.append,
+    )
+
+    assert events == ["before_openai_request", "after_openai_request"]
+
+
+def test_openai_request_exception_lifecycle_event(organization, initiative):
+    events = []
+
+    with pytest.raises(OrganizationAnalysisError):
+        analyze_organization(
+            organization,
+            initiative,
+            client=FakeClient(error=RuntimeError("provider detail")),
+            lifecycle_logger=events.append,
+        )
+
+    assert events == ["before_openai_request", "openai_request_exception"]
+
+
+def test_base_exception_emits_lifecycle_event_and_propagates(
+    organization,
+    initiative,
+):
+    events = []
+
+    with pytest.raises(SystemExit):
+        analyze_organization(
+            organization,
+            initiative,
+            client=FakeClient(error=SystemExit()),
+            lifecycle_logger=events.append,
+        )
+
+    assert events == ["before_openai_request", "openai_request_exception"]
+
+
 def test_invalid_response_raises(organization, initiative):
     client = FakeClient(None)
 
