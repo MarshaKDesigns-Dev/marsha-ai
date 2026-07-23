@@ -5,10 +5,13 @@ from __future__ import annotations
 import logging
 import os
 import socket
-from time import sleep
-from typing import Callable
+import sys
+from time import monotonic, sleep
+from typing import Callable, TextIO
 
-from app import app, db
+from sqlalchemy import func, select
+
+from app import SponsorshipIntelligenceJob, app, db
 from services.generate_sponsorship_intelligence import (
     generate_workspace_intelligence,
 )
@@ -31,6 +34,40 @@ UNEXPECTED_FAILURE_MESSAGE = (
 )
 
 logger = logging.getLogger(__name__)
+
+
+def configure_worker_logging(stream: TextIO | None = None) -> None:
+    """Send controlled worker lifecycle logs to Railway-visible stdout."""
+
+    handler = logging.StreamHandler(stream or sys.stdout)
+    handler.setFormatter(logging.Formatter("%(message)s"))
+    logger.handlers.clear()
+    logger.addHandler(handler)
+    logger.setLevel(logging.INFO)
+    logger.propagate = False
+
+
+def inspect_eligible_jobs(*, session=None) -> dict:
+    """Return safe queue diagnostics without connection or user data."""
+
+    database_session = session or db.session
+    database_now = database_session.scalar(select(func.now()))
+    eligible = database_session.query(SponsorshipIntelligenceJob).filter(
+        SponsorshipIntelligenceJob.status == "pending",
+        SponsorshipIntelligenceJob.available_at <= database_now,
+    )
+    oldest = eligible.order_by(
+        SponsorshipIntelligenceJob.available_at.asc(),
+        SponsorshipIntelligenceJob.id.asc(),
+    ).first()
+    return {
+        "eligible_pending_count": eligible.count(),
+        "oldest_eligible_job_id": getattr(oldest, "id", None),
+        "database_utc_time": database_now,
+        "oldest_available_at": getattr(oldest, "available_at", None),
+        "oldest_status": getattr(oldest, "status", None),
+        "oldest_attempt_count": getattr(oldest, "attempt_count", None),
+    }
 
 
 def _float_setting(name: str, default: float) -> float:
@@ -76,6 +113,30 @@ def process_next_job(
     if job is None:
         return False
 
+    logger.info(
+        (
+            "sponsorship_intelligence_job_claimed worker_id=%s job_id=%s "
+            "organization_id=%s initiative_id=%s attempt_count=%s "
+            "status=%s"
+        ),
+        worker_id,
+        getattr(job, "id", None),
+        getattr(job, "organization_id", None),
+        getattr(job, "initiative_id", None),
+        getattr(job, "attempt_count", None),
+        getattr(job, "status", None),
+    )
+    logger.info(
+        (
+            "sponsorship_intelligence_generation_started worker_id=%s "
+            "job_id=%s organization_id=%s initiative_id=%s status=processing"
+        ),
+        worker_id,
+        getattr(job, "id", None),
+        getattr(job, "organization_id", None),
+        getattr(job, "initiative_id", None),
+    )
+
     def persist_without_commit(organization, initiative, result):
         return persist(
             organization,
@@ -101,6 +162,17 @@ def process_next_job(
                 commit=False,
             )
             db.session.commit()
+            logger.info(
+                (
+                    "sponsorship_intelligence_job_completed worker_id=%s "
+                    "job_id=%s organization_id=%s initiative_id=%s "
+                    "status=completed"
+                ),
+                worker_id,
+                getattr(job, "id", None),
+                getattr(job, "organization_id", None),
+                getattr(job, "initiative_id", None),
+            )
             return True
 
         db.session.rollback()
@@ -111,6 +183,19 @@ def process_next_job(
             generation_step=result.generation_step,
             session=db.session,
         )
+        logger.warning(
+            (
+                "sponsorship_intelligence_job_failed worker_id=%s job_id=%s "
+                "organization_id=%s initiative_id=%s status=failed "
+                "generation_step=%s error_code=%s"
+            ),
+            worker_id,
+            getattr(job, "id", None),
+            getattr(job, "organization_id", None),
+            getattr(job, "initiative_id", None),
+            getattr(result, "generation_step", None),
+            getattr(result, "status", None),
+        )
         return True
 
     except Exception:
@@ -118,8 +203,11 @@ def process_next_job(
         logger.error(
             (
                 "sponsorship_intelligence_job_failed "
-                "job_id=%s organization_id=%s initiative_id=%s"
+                "worker_id=%s job_id=%s organization_id=%s initiative_id=%s "
+                "status=failed generation_step=None "
+                "error_code=unexpected_worker_error"
             ),
+            worker_id,
             getattr(job, "id", None),
             getattr(job, "organization_id", None),
             getattr(job, "initiative_id", None),
@@ -142,6 +230,8 @@ def run_worker(
     max_attempts: int | None = None,
     process: Callable[..., bool] = process_next_job,
     sleeper: Callable[[float], None] = sleep,
+    clock: Callable[[], float] = monotonic,
+    log_stream: TextIO | None = None,
     max_iterations: int | None = None,
 ) -> None:
     """Continuously process jobs without allowing one failure to exit."""
@@ -164,8 +254,28 @@ def run_worker(
         DEFAULT_JOB_MAX_ATTEMPTS,
     )
 
+    configure_worker_logging(log_stream)
     iterations = 0
+    last_idle_log_at = None
     with app.app_context():
+        database_dialect = db.session.get_bind().dialect.name
+        logger.info(
+            (
+                "sponsorship_intelligence_worker_started worker_id=%s "
+                "database_dialect=%s workflow_budget_seconds=%s "
+                "lease_seconds=%s poll_interval_seconds=%s max_attempts=%s"
+            ),
+            resolved_worker_id,
+            database_dialect,
+            resolved_budget,
+            resolved_lease,
+            resolved_poll,
+            resolved_attempts,
+        )
+        logger.info(
+            "sponsorship_intelligence_worker_polling_loop_entered worker_id=%s",
+            resolved_worker_id,
+        )
         while max_iterations is None or iterations < max_iterations:
             iterations += 1
             try:
@@ -177,10 +287,30 @@ def run_worker(
                 )
             except Exception:
                 db.session.rollback()
-                logger.error("sponsorship_intelligence_worker_iteration_failed")
+                logger.error(
+                    (
+                        "sponsorship_intelligence_worker_iteration_failed "
+                        "worker_id=%s status=failed "
+                        "generation_step=None error_code=unexpected_loop_error"
+                    ),
+                    resolved_worker_id,
+                )
                 found_job = False
 
             if not found_job:
+                current_time = clock()
+                if (
+                    last_idle_log_at is None
+                    or current_time - last_idle_log_at >= 60.0
+                ):
+                    logger.info(
+                        (
+                            "sponsorship_intelligence_worker_idle worker_id=%s "
+                            "status=idle"
+                        ),
+                        resolved_worker_id,
+                    )
+                    last_idle_log_at = current_time
                 sleeper(resolved_poll)
 
 
