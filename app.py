@@ -1,24 +1,19 @@
 
 
-import os, json, smtplib
+import os, json, smtplib, sys
 from email.message import EmailMessage
 from datetime import UTC, date, datetime, timedelta
-from flask import Flask, render_template, request, redirect, url_for, flash, session
-from dotenv import load_dotenv
+from flask import render_template, request, redirect, url_for, flash, session
 from openai import OpenAI
-from flask_sqlalchemy import SQLAlchemy
+from application import app
+from extensions import db
 from services.sponsor_eligibility_gate import (
     CategoryResearchDecision,
     evaluate_category_research,
 )
 
-load_dotenv()
-
-app = Flask(__name__)
-app.config["SECRET_KEY"] = os.getenv("SECRET_KEY", "dev-only-change-me")
-app.config["SQLALCHEMY_DATABASE_URI"] = os.getenv("DATABASE_URL", "sqlite:///sponsorship.db")
-app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
-db = SQLAlchemy(app)
+if __name__ == "__main__":
+    sys.modules.setdefault("app", sys.modules[__name__])
 
 DEFAULT_ORG = {
     "name": "Organization",

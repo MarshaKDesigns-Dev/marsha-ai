@@ -10,7 +10,8 @@ from urllib.parse import urlsplit
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app import SponsorProspect, db
+from app import SponsorProspect
+from extensions import db
 from services.sponsor_research import SponsorProspectCandidate
 
 

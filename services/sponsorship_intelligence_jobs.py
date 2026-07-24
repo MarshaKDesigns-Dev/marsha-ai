@@ -8,6 +8,8 @@ from typing import Any
 from sqlalchemy import and_, case, or_
 from sqlalchemy.exc import IntegrityError
 
+from extensions import db
+
 
 STATUS_PENDING = "pending"
 STATUS_PROCESSING = "processing"
@@ -22,9 +24,16 @@ MAX_ATTEMPTS_MESSAGE = (
 
 
 def _models():
-    from app import SponsorshipIntelligenceJob, db
-
-    return SponsorshipIntelligenceJob, db
+    job_models = [
+        mapper.class_
+        for mapper in db.Model.registry.mappers
+        if mapper.class_.__name__ == "SponsorshipIntelligenceJob"
+    ]
+    if len(job_models) != 1:
+        raise RuntimeError(
+            "SponsorshipIntelligenceJob is not registered."
+        )
+    return job_models[0], db
 
 
 def _session(session=None):

@@ -11,7 +11,9 @@ from typing import Callable, TextIO
 
 from sqlalchemy import func, select
 
-from app import SponsorshipIntelligenceJob, app, db
+from app import SponsorshipIntelligenceJob
+from application import app
+from extensions import db
 from services.generate_sponsorship_intelligence import (
     generate_workspace_intelligence,
 )

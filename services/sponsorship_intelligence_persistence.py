@@ -21,8 +21,8 @@ from app import (
     SponsorCategory,
     SponsorshipAsset,
     SponsorshipIntelligence,
-    db,
 )
+from extensions import db
 from services.sponsorship_intelligence import (
     SponsorshipIntelligenceResult,
 )
