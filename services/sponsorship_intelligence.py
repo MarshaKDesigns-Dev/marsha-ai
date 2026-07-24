@@ -27,6 +27,10 @@ from services.openai_generation_timeout import (
     remaining_request_timeout,
 )
 from services.research_priorities import ResearchPrioritySet
+from services.sponsor_eligibility import SponsorEligibilityAnalysis
+from services.sponsor_eligibility_engine import (
+    generate_sponsor_eligibility_analysis,
+)
 from services.sponsor_categories import (
     SponsorCategorySet,
     generate_sponsor_categories,
@@ -64,6 +68,7 @@ class SponsorshipIntelligenceResult(BaseModel):
     sponsorship_strategy: SponsorshipStrategy
     sponsor_categories: SponsorCategorySet
     sponsorship_assets: SponsorshipAssetSet
+    sponsor_eligibility: SponsorEligibilityAnalysis | None = None
     research_priorities: ResearchPrioritySet | None = None
 
 
@@ -71,6 +76,7 @@ OrganizationAnalysisWorker = Callable[..., OrganizationAnalysis]
 SponsorshipStrategyWorker = Callable[..., SponsorshipStrategy]
 SponsorCategoryWorker = Callable[..., SponsorCategorySet]
 SponsorshipAssetWorker = Callable[..., SponsorshipAssetSet]
+SponsorEligibilityEngineCallable = Callable[..., SponsorEligibilityAnalysis]
 LifecycleLogger = Callable[[str], None]
 
 
@@ -91,6 +97,9 @@ def generate_sponsorship_intelligence(
     ),
     sponsorship_asset_worker: SponsorshipAssetWorker = (
         generate_sponsorship_assets
+    ),
+    sponsor_eligibility_engine: SponsorEligibilityEngineCallable = (
+        generate_sponsor_eligibility_analysis
     ),
     workflow_budget_seconds: float = WORKFLOW_TIME_BUDGET_SECONDS,
     clock: ClockCallable = monotonic,
@@ -122,6 +131,9 @@ def generate_sponsorship_intelligence(
 
         sponsorship_asset_worker:
             Injectable Sponsorship Asset worker.
+
+        sponsor_eligibility_engine:
+            Injectable deterministic Sponsor Eligibility Engine.
 
     Returns:
         A validated SponsorshipIntelligenceResult containing the output from
@@ -204,11 +216,23 @@ def generate_sponsorship_intelligence(
         )
         log_lifecycle("sponsorship_assets_completed")
 
+        log_lifecycle("sponsor_eligibility_started")
+        eligibility = sponsor_eligibility_engine(
+            organization,
+            initiative,
+            analysis,
+            strategy,
+            categories,
+            assets,
+        )
+        log_lifecycle("sponsor_eligibility_completed")
+
         return SponsorshipIntelligenceResult(
             organization_analysis=analysis,
             sponsorship_strategy=strategy,
             sponsor_categories=categories,
             sponsorship_assets=assets,
+            sponsor_eligibility=eligibility,
         )
 
     except GenerationStepTimeoutError as exc:
