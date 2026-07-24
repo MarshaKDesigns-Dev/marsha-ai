@@ -50,36 +50,6 @@ ASSETS = [
     {"name": "Event Activation", "value": "On-site display, sampling, or engagement", "capacity": "Limited"},
 ]
 
-PROSPECTS = {
-    "healthcare": [
-        {"name": "Duke Health", "location": "Durham, NC", "category": "Healthcare & Wellness", "score": 94, "fit": "Strong local relevance and natural alignment with women’s health, wellness education, confidence, and community impact.", "angle": "Women’s Wellness and Community Impact Partner focused on preventive care, confidence, and health education."},
-        {"name": "Lincoln Community Health Center", "location": "Durham, NC", "category": "Healthcare & Wellness", "score": 91, "fit": "Community-centered health mission and local relevance; strong fit for service, education, and public wellness themes.", "angle": "Community wellness partnership connected to education, screenings, or service-centered programming."},
-        {"name": "UNC Health", "location": "Chapel Hill / Triangle, NC", "category": "Healthcare & Wellness", "score": 87, "fit": "Regional healthcare presence with potential alignment around women’s wellness, community service, and public education.", "angle": "Community platform for women’s wellness visibility and education."},
-        {"name": "Blue Cross and Blue Shield of North Carolina", "location": "Durham, NC", "category": "Healthcare & Wellness", "score": 86, "fit": "North Carolina-based health insurer with potential community wellness, health equity, and local engagement alignment.", "angle": "Confidence, wellness, and community impact partnership with statewide relevance."},
-        {"name": "YMCA of the Triangle", "location": "Triangle, NC", "category": "Healthcare & Wellness", "score": 82, "fit": "Wellness, confidence, community, and family engagement fit; potential in-kind or program partnership.", "angle": "Wellness programming, delegate fitness and wellness experiences, or community activation."}
-    ],
-    "beauty": [
-        {"name": "Sally Beauty", "location": "Triangle / National", "category": "Beauty & Personal Care", "score": 90, "fit": "Direct alignment with pageant preparation, confidence, and beauty education.", "angle": "Product support, beauty kits, delegate experience support, or program book visibility."},
-        {"name": "Ulta Beauty", "location": "Triangle / National", "category": "Beauty & Personal Care", "score": 88, "fit": "Strong alignment with beauty, confidence, self-expression, and consumer engagement.", "angle": "In-kind beauty support, gift cards, styling experience, or confidence-focused activation."},
-        {"name": "Sephora", "location": "Triangle / National", "category": "Beauty & Personal Care", "score": 84, "fit": "Beauty and confidence alignment; potential for education, product support, or experience-based partnership.", "angle": "Beauty education or confidence experience for delegates."}
-    ],
-    "fashion": [
-        {"name": "Torrid", "location": "Triangle / National", "category": "Fashion & Size-Inclusive Retail", "score": 93, "fit": "Direct size-inclusive fashion alignment with full-figured women and pageant preparation.", "angle": "Wardrobe, styling, gift cards, fashion experience, or category visibility."},
-        {"name": "Lane Bryant", "location": "Triangle / National", "category": "Fashion & Size-Inclusive Retail", "score": 91, "fit": "Strong full-figured fashion and confidence alignment.", "angle": "Size-inclusive confidence and fashion partner."},
-        {"name": "Ashley Stewart", "location": "Regional / National", "category": "Fashion & Size-Inclusive Retail", "score": 88, "fit": "Brand alignment with style, confidence, and full-figured women.", "angle": "Fashion sponsorship, delegate styling, or program visibility."}
-    ],
-    "financial": [
-        {"name": "Self-Help Credit Union", "location": "Durham, NC", "category": "Financial Services", "score": 89, "fit": "Durham-based community finance alignment with empowerment, education, and local impact.", "angle": "Financial confidence or community empowerment partner."},
-        {"name": "Coastal Credit Union", "location": "Triangle, NC", "category": "Financial Services", "score": 84, "fit": "Regional relevance and potential alignment with financial education and community engagement.", "angle": "Financial wellness education and visibility through the Pageant community."},
-        {"name": "Truist", "location": "North Carolina / Regional", "category": "Financial Services", "score": 82, "fit": "Large regional financial institution with possible community and empowerment alignment.", "angle": "Women’s leadership, community service, and financial confidence."}
-    ],
-    "automotive": [
-        {"name": "Mark Jacobson Toyota", "location": "Durham, NC", "category": "Automotive", "score": 84, "fit": "Local visibility and event/community sponsorship potential.", "angle": "Local presenting support, transportation visibility, or event activation."},
-        {"name": "Hendrick Automotive Group", "location": "Triangle / NC", "category": "Automotive", "score": 81, "fit": "Regional automotive presence with potential community sponsorship interest.", "angle": "Mobility, community, or event visibility partner."},
-        {"name": "Leith Automotive Group", "location": "Triangle, NC", "category": "Automotive", "score": 80, "fit": "Regional dealer group with event and community engagement relevance.", "angle": "Event activation and community visibility support."}
-    ]
-}
-
 STAGES = ["Ready to Send", "Sent", "Follow-Up Due", "Responded", "Meeting", "Proposal", "Won", "Lost"]
 
 TEST_MODE = os.getenv("TEST_MODE", "true").lower() == "true"
@@ -445,6 +415,84 @@ class SponsorCategory(db.Model):
         default=datetime.utcnow,
         onupdate=datetime.utcnow
     )
+
+
+class SponsorProspect(db.Model):
+    """Evidence-backed sponsor prospect for an approved category."""
+
+    id = db.Column(db.Integer, primary_key=True)
+    organization_id = db.Column(
+        db.Integer,
+        db.ForeignKey("organization.id"),
+        nullable=False,
+    )
+    initiative_id = db.Column(
+        db.Integer,
+        db.ForeignKey("sponsorship_initiative.id"),
+        nullable=False,
+    )
+    category_slug = db.Column(db.String(100), nullable=False)
+    company_key = db.Column(db.String(300), nullable=False)
+    company_name = db.Column(db.String(300), nullable=False)
+    website = db.Column(db.Text, nullable=False)
+    location = db.Column(db.String(300), nullable=False)
+    industry = db.Column(db.String(200), nullable=False)
+    why_fits = db.Column(db.Text, nullable=False)
+    relevant_connection = db.Column(db.Text, nullable=False)
+    geographic_relevance = db.Column(db.Text, nullable=False)
+    evidence_type = db.Column(db.String(50), nullable=False)
+    evidence_json = db.Column(db.Text, nullable=False, default="[]")
+    research_date = db.Column(db.Date, nullable=False)
+    confidence = db.Column(db.String(20), nullable=False)
+    uncertainty_json = db.Column(db.Text, nullable=False, default="[]")
+    ranking_score = db.Column(db.Integer, nullable=False)
+    ranking_explanation = db.Column(db.Text, nullable=False)
+    contact_name = db.Column(db.String(200))
+    contact_title = db.Column(db.String(200))
+    contact_department = db.Column(db.String(250))
+    contact_email = db.Column(db.String(250))
+    contact_phone = db.Column(db.String(100))
+    contact_url = db.Column(db.Text)
+    contact_evidence_url = db.Column(db.Text)
+    is_active = db.Column(db.Boolean, nullable=False, default=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(
+        db.DateTime,
+        default=datetime.utcnow,
+        onupdate=datetime.utcnow,
+    )
+
+    __table_args__ = (
+        db.UniqueConstraint(
+            "initiative_id",
+            "category_slug",
+            "company_key",
+            name="uq_sponsor_prospect_initiative_category_company",
+        ),
+        db.Index(
+            "ix_sponsor_prospect_category_ranking",
+            "organization_id",
+            "initiative_id",
+            "category_slug",
+            "ranking_score",
+        ),
+    )
+
+    @staticmethod
+    def _load_list(value):
+        try:
+            result = json.loads(value or "[]")
+            return result if isinstance(result, list) else []
+        except (TypeError, ValueError):
+            return []
+
+    @property
+    def evidence_sources(self):
+        return self._load_list(self.evidence_json)
+
+    @property
+    def uncertainty(self):
+        return self._load_list(self.uncertainty_json)
 
 
 class SponsorshipAsset(db.Model):
@@ -825,6 +873,38 @@ def get_category_research_decision(category_slug):
     return evaluate_category_research(eligibility, category)
 
 
+def get_active_sponsor_category(category_slug):
+    """Return one category belonging to the active workspace."""
+
+    organization = get_active_organization()
+    initiative = get_active_initiative()
+    if (
+        organization is None
+        or initiative is None
+        or initiative.organization_id != organization.id
+    ):
+        return None
+    return SponsorCategory.query.filter_by(
+        organization_id=organization.id,
+        initiative_id=initiative.id,
+        slug=category_slug,
+        is_active=True,
+    ).first()
+
+
+def sponsor_prospect_context(prospect_record, category_record):
+    """Adapt a persisted prospect to existing downstream worker inputs."""
+
+    return {
+        "name": prospect_record.company_name,
+        "location": prospect_record.location,
+        "category": category_record.category,
+        "score": prospect_record.ranking_score,
+        "fit": prospect_record.why_fits,
+        "angle": prospect_record.relevant_connection,
+    }
+
+
 def run_workspace_intelligence_generation(
     organization_id,
     initiative_id,
@@ -875,85 +955,9 @@ def get_workspace_intelligence_job(organization, initiative):
     return get_latest_job(organization.id, initiative.id)
 
 
-def get_prospect_key(category, index):
-    return f"{category}:{index}"
-
 def client():
     key = os.getenv("OPENAI_API_KEY")
     return OpenAI(api_key=key) if key else None
-
-
-
-def research_contact(prospect):
-    c = client()
-    if not c:
-        return {"error": "OPENAI_API_KEY is not configured."}
-
-    context = get_worker_context()
-
-    prompt = f"""
-You are the Contact Research Worker for Marsha AI's Sponsorship Coordinator.
-
-Your task is to identify the strongest current, publicly verifiable contact path
-for a sponsorship or community partnership approach.
-
-Organization seeking sponsorship:
-Name: {context['organization_name']}
-Type: {context['organization_type']}
-Location: {context['location']}
-Mission: {context['mission']}
-Website: {context['website']}
-
-Active sponsorship initiative:
-Name: {context['initiative_name']}
-Fundraising target: {context['fundraising_target']}
-Deadline: {context['deadline']}
-Audience: {context['audience']}
-Needs: {context['needs']}
-Goals: {context['goals']}
-
-Prospect being researched:
-Parent company or organization: {prospect['name']}
-Location or relevance: {prospect['location']}
-Category: {prospect['category']}
-Why it may fit: {prospect['fit']}
-Recommended sponsorship angle: {prospect['angle']}
-
-Research the current public web and identify the best legitimate contact path
-for this specific organization and initiative.
-
-Important:
-- Evaluate fit against the active initiative, audience, needs, goals, and location.
-- The best target may be a local branch, subsidiary, operating unit, foundation,
-  dealership, hospital, store, community office, or corporate team.
-- Clearly name the best target in recommended_target.
-- Never invent a person, title, email, phone number, profile, or URL.
-- Prefer a named decision-maker only when publicly verifiable.
-- If no named person is verifiable, identify the best department and official route.
-- Do not guess email patterns.
-- Distinguish clearly between the parent organization and the recommended target.
-- Return only JSON with these keys:
-recommended_target, contact_name, title, department, email, phone, contact_url,
-linkedin_url, why_this_contact, confidence, verified_date, sources,
-recommended_next_action.
-- Use null for unavailable values.
-- sources must be a list of objects with label and url.
-"""
-
-    try:
-        response = c.responses.create(
-            model="gpt-5-mini",
-            tools=[{"type": "web_search"}],
-            input=prompt
-        )
-        text = response.output_text.strip()
-
-        if text.startswith("```"):
-            text = text.replace("```json", "").replace("```", "").strip()
-
-        return json.loads(text)
-    except Exception as e:
-        return {"error": f"Contact research failed: {str(e)}"}
 
 
 
@@ -1530,14 +1534,75 @@ def generate_workspace_sponsorship_intelligence():
     return redirect(url_for("workspace"))
 
 
-@app.route("/prospects/<category>")
+@app.route("/prospects/<category>", methods=["GET", "POST"])
 def prospects(category):
     decision = get_category_research_decision(category)
     if not decision.allowed:
         flash(decision.reason, "warning")
         return redirect(url_for("workspace"))
 
-    return render_template("prospects.html", category=category, prospects=PROSPECTS.get(category, []))
+    organization = get_active_organization()
+    initiative = get_active_initiative()
+    category_record = get_active_sponsor_category(category)
+    intelligence = get_sponsorship_intelligence(
+        organization,
+        initiative,
+    )
+
+    if request.method == "POST":
+        from services.sponsor_prospect_persistence import (
+            SponsorProspectPersistenceError,
+            persist_sponsor_prospects,
+        )
+        from services.sponsor_research import (
+            NoCredibleProspectsError,
+            SponsorResearchError,
+            research_sponsor_category,
+        )
+
+        try:
+            candidates = research_sponsor_category(
+                organization,
+                initiative,
+                category_record,
+                get_sponsorship_assets(organization, initiative),
+                intelligence.sponsor_eligibility,
+            )
+            persist_sponsor_prospects(
+                organization,
+                initiative,
+                category_record,
+                candidates,
+            )
+            flash(
+                "Evidence-backed sponsor research completed.",
+                "success",
+            )
+        except NoCredibleProspectsError as exc:
+            flash(str(exc), "warning")
+        except (SponsorResearchError, SponsorProspectPersistenceError):
+            flash(
+                "Sponsor research could not be completed safely. "
+                "Existing prospects were preserved.",
+                "warning",
+            )
+
+    researched_prospects = SponsorProspect.query.filter_by(
+        organization_id=organization.id,
+        initiative_id=initiative.id,
+        category_slug=category,
+        is_active=True,
+    ).order_by(
+        SponsorProspect.ranking_score.desc(),
+        SponsorProspect.company_name.asc(),
+    ).all()
+
+    return render_template(
+        "prospects.html",
+        category=category,
+        category_record=category_record,
+        prospects=researched_prospects,
+    )
 
 
 @app.route("/prospect/<category>/<int:index>", methods=["GET", "POST"])
@@ -1547,7 +1612,21 @@ def prospect(category, index):
         flash(decision.reason, "warning")
         return redirect(url_for("workspace"))
 
-    p = PROSPECTS[category][index]
+    organization = get_active_organization()
+    initiative = get_active_initiative()
+    category_record = get_active_sponsor_category(category)
+    prospect_record = SponsorProspect.query.filter_by(
+        id=index,
+        organization_id=organization.id,
+        initiative_id=initiative.id,
+        category_slug=category,
+        is_active=True,
+    ).first()
+    if prospect_record is None:
+        flash("That researched sponsor prospect is not available.", "warning")
+        return redirect(url_for("prospects", category=category))
+
+    p = sponsor_prospect_context(prospect_record, category_record)
 
     existing_opportunity = Opportunity.query.filter_by(
         parent_prospect=p["name"]
@@ -1561,13 +1640,30 @@ def prospect(category, index):
             )
         )
 
-    prospect_key = get_prospect_key(category, index)
+    prospect_key = f"sponsor_prospect:{prospect_record.id}"
 
     research_record = ResearchRecord.query.filter_by(
         prospect_key=prospect_key
     ).first()
 
-    contact = None
+    contact = {
+        "recommended_target": prospect_record.company_name,
+        "contact_name": prospect_record.contact_name,
+        "title": prospect_record.contact_title,
+        "department": prospect_record.contact_department,
+        "email": prospect_record.contact_email,
+        "phone": prospect_record.contact_phone,
+        "contact_url": prospect_record.contact_url,
+        "linkedin_url": None,
+        "why_this_contact": (
+            "Public business contact information found during sponsor research."
+            if prospect_record.contact_evidence_url
+            else "No reliable public contact was found."
+        ),
+        "confidence": prospect_record.confidence,
+        "verified_date": prospect_record.research_date.isoformat(),
+        "sources": prospect_record.evidence_sources,
+    }
     outreach = None
 
     if research_record:
@@ -1589,11 +1685,18 @@ def prospect(category, index):
         outreach = research_record.outreach
 
     if request.method == "POST":
-        contact = research_contact(p)
-
-        if contact.get("error"):
-            flash(contact["error"], "warning")
-            contact = None
+        if not any(
+            (
+                contact.get("email"),
+                contact.get("phone"),
+                contact.get("contact_url"),
+            )
+        ):
+            flash(
+                "No reliable public contact route is available for this "
+                "prospect.",
+                "warning",
+            )
         else:
             outreach = draft_outreach(p, contact)
 
@@ -1637,6 +1740,7 @@ def prospect(category, index):
         p=p,
         category=category,
         index=index,
+        prospect_record=prospect_record,
         contact=contact,
         outreach=outreach
     )
@@ -1671,8 +1775,22 @@ def approve(category, index):
         flash(decision.reason, "warning")
         return redirect(url_for("workspace"))
 
-    p = PROSPECTS[category][index]
-    prospect_key = get_prospect_key(category, index)
+    organization = get_active_organization()
+    initiative = get_active_initiative()
+    category_record = get_active_sponsor_category(category)
+    prospect_record = SponsorProspect.query.filter_by(
+        id=index,
+        organization_id=organization.id,
+        initiative_id=initiative.id,
+        category_slug=category,
+        is_active=True,
+    ).first()
+    if prospect_record is None:
+        flash("That researched sponsor prospect is not available.", "warning")
+        return redirect(url_for("prospects", category=category))
+
+    p = sponsor_prospect_context(prospect_record, category_record)
+    prospect_key = f"sponsor_prospect:{prospect_record.id}"
 
     research_record = ResearchRecord.query.filter_by(
         prospect_key=prospect_key

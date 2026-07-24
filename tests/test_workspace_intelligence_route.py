@@ -1,4 +1,5 @@
 from types import SimpleNamespace
+from unittest.mock import MagicMock
 
 import app as app_module
 import pytest
@@ -440,7 +441,7 @@ def test_workspace_renders_persisted_eligibility_and_allowed_category():
     assert "Sponsor research allowed:" in html
     assert "Yes" in html
     assert "sponsor-eligibility-v1" in html
-    assert 'href="/prospects/technology"' in html
+    assert 'action="/prospects/technology"' in html
 
 
 def test_workspace_renders_legacy_eligibility_warning():
@@ -496,7 +497,7 @@ def test_direct_research_routes_enforce_server_side_gate(
     assert response.headers["Location"].endswith("/workspace")
 
 
-def test_allowed_category_research_reaches_existing_prospect_page(
+def test_allowed_category_research_does_not_use_placeholder_prospects(
     monkeypatch,
 ):
     monkeypatch.setattr(
@@ -504,8 +505,46 @@ def test_allowed_category_research_reaches_existing_prospect_page(
         "get_category_research_decision",
         lambda category: CategoryResearchDecision(allowed=True),
     )
+    organization = SimpleNamespace(id=1)
+    initiative = SimpleNamespace(id=2, organization_id=1)
+    category_record = SimpleNamespace(
+        slug="healthcare",
+        category="Healthcare",
+    )
+    monkeypatch.setattr(
+        app_module,
+        "get_active_organization",
+        lambda: organization,
+    )
+    monkeypatch.setattr(
+        app_module,
+        "get_active_initiative",
+        lambda: initiative,
+    )
+    monkeypatch.setattr(
+        app_module,
+        "get_active_sponsor_category",
+        lambda category: category_record,
+    )
+    monkeypatch.setattr(
+        app_module,
+        "get_sponsorship_intelligence",
+        lambda org, init: SimpleNamespace(sponsor_eligibility=None),
+    )
+    query = MagicMock()
+    query.filter_by.return_value.order_by.return_value.all.return_value = []
+    monkeypatch.setattr(
+        app_module,
+        "SponsorProspect",
+        SimpleNamespace(
+            query=query,
+            ranking_score=SimpleNamespace(desc=lambda: "ranking"),
+            company_name=SimpleNamespace(asc=lambda: "company"),
+        ),
+    )
 
     response = app_module.app.test_client().get("/prospects/healthcare")
 
     assert response.status_code == 200
-    assert b"Duke Health" in response.data
+    assert b"No credible prospects saved yet." in response.data
+    assert b"Duke Health" not in response.data

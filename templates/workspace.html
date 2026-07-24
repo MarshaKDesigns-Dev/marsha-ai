@@ -390,12 +390,14 @@
 
           <td class="text-end">
             {% if category_decision and category_decision.allowed %}
-            <a
-              class="btn btn-sm btn-dark"
-              href="{{ url_for('prospects', category=category.slug) }}"
+            <form
+              method="post"
+              action="{{ url_for('prospects', category=category.slug) }}"
             >
-              Research This Category
-            </a>
+              <button class="btn btn-sm btn-dark" type="submit">
+                Research This Category
+              </button>
+            </form>
             {% else %}
             <button
               class="btn btn-sm btn-secondary"

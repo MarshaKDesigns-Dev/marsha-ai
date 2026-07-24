@@ -1,26 +1,75 @@
 {% extends "base.html" %} {% block content %}
-<a href="{{ url_for('home') }}">← Back to workspace</a>
+<a href="{{ url_for('workspace') }}">← Back to workspace</a>
 
-<div class="eyebrow mt-4">PROSPECT QUEUE</div>
-<h1>{{ category|title }}</h1>
+<div class="eyebrow mt-4">EVIDENCE-BACKED SPONSOR PROSPECTS</div>
+<h1>{{ category_record.category if category_record else category|title }}</h1>
 
+<form method="post" class="mb-4">
+  <button class="btn btn-gold" type="submit">
+    Run New Research
+  </button>
+</form>
+
+{% if prospects %}
 <div class="row g-3">
   {% for p in prospects %}
   <div class="col-lg-6">
     <div class="card p-4 h-100">
       <div class="d-flex justify-content-between gap-3">
-        <h2>{{ p.name }}</h2>
-        <span class="score">{{ p.score }}</span>
+        <h2>{{ p.company_name }}</h2>
+        <span class="score">{{ p.ranking_score }}</span>
       </div>
 
+      <p>
+        <a href="{{ p.website }}" target="_blank" rel="noopener">
+          {{ p.website }}
+        </a>
+      </p>
       <p><strong>Location:</strong> {{ p.location }}</p>
-      <p><strong>Category:</strong> {{ p.category }}</p>
-      <p><strong>Why it fits:</strong> {{ p.fit }}</p>
-      <p><strong>Recommended angle:</strong> {{ p.angle }}</p>
+      <p><strong>Industry:</strong> {{ p.industry }}</p>
+      <p><strong>Why it fits:</strong> {{ p.why_fits }}</p>
+      <p>
+        <strong>Business or community connection:</strong>
+        {{ p.relevant_connection }}
+      </p>
+      <p>
+        <strong>Geographic relevance:</strong>
+        {{ p.geographic_relevance }}
+      </p>
+      <p>
+        <strong>Evidence:</strong>
+        {{ p.evidence_type|replace('_', ' ')|title }}
+      </p>
+      <p><strong>Ranking:</strong> {{ p.ranking_explanation }}</p>
+      <p>
+        <strong>Research date:</strong> {{ p.research_date }}
+        · <strong>Confidence:</strong> {{ p.confidence|title }}
+      </p>
+
+      {% if p.uncertainty %}
+      <div class="alert alert-warning">
+        <strong>Uncertainty or missing information:</strong>
+        <ul class="mb-0">
+          {% for item in p.uncertainty %}
+          <li>{{ item }}</li>
+          {% endfor %}
+        </ul>
+      </div>
+      {% endif %}
+
+      <h3 class="h5">Public evidence</h3>
+      {% for source in p.evidence_sources %}
+      <p class="mb-2">
+        <a href="{{ source.url }}" target="_blank" rel="noopener">
+          {{ source.title }}
+        </a><br />
+        <span class="small">{{ source.description }}</span>
+      </p>
+      {% endfor %}
 
       <a
-        class="btn btn-dark"
-        href="{{ url_for('prospect', category=category, index=loop.index0) }}"
+        class="btn btn-dark mt-auto"
+        href="{{ url_for('prospect', category=category, index=p.id) }}"
       >
         Open Prospect
       </a>
@@ -28,4 +77,13 @@
   </div>
   {% endfor %}
 </div>
+{% else %}
+<div class="empty-state">
+  <h2>No credible prospects saved yet.</h2>
+  <p>
+    Run research to look for real organizations supported by public evidence.
+    The Coordinator will not substitute placeholder companies.
+  </p>
+</div>
+{% endif %}
 {% endblock %}
