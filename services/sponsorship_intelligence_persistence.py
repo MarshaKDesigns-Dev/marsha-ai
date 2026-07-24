@@ -26,6 +26,9 @@ from app import (
 from services.sponsorship_intelligence import (
     SponsorshipIntelligenceResult,
 )
+from services.sponsor_eligibility_serialization import (
+    serialize_sponsor_eligibility,
+)
 
 
 class SponsorshipIntelligencePersistenceError(RuntimeError):
@@ -277,6 +280,9 @@ def persist_sponsorship_intelligence(
         )
         intelligence_record.sponsorship_strategy_json = _json_dump(
             result.sponsorship_strategy
+        )
+        intelligence_record.sponsor_eligibility_json = (
+            serialize_sponsor_eligibility(result.sponsor_eligibility)
         )
 
         _replace_categories(

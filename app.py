@@ -7,6 +7,10 @@ from flask import Flask, render_template, request, redirect, url_for, flash, ses
 from dotenv import load_dotenv
 from openai import OpenAI
 from flask_sqlalchemy import SQLAlchemy
+from services.sponsor_eligibility_gate import (
+    CategoryResearchDecision,
+    evaluate_category_research,
+)
 
 load_dotenv()
 
@@ -236,6 +240,11 @@ class SponsorshipIntelligence(db.Model):
         default="{}",
     )
 
+    sponsor_eligibility_json = db.Column(
+        db.Text,
+        nullable=True,
+    )
+
     generated_at = db.Column(
         db.DateTime,
         default=lambda: datetime.now(UTC),
@@ -266,6 +275,22 @@ class SponsorshipIntelligence(db.Model):
             return json.loads(self.sponsorship_strategy_json or "{}")
         except (TypeError, ValueError):
             return {}
+
+    @property
+    def sponsor_eligibility(self):
+        """Return validated deterministic sponsor eligibility, when present."""
+
+        from services.sponsor_eligibility_serialization import (
+            SponsorEligibilitySerializationError,
+            deserialize_sponsor_eligibility,
+        )
+
+        try:
+            return deserialize_sponsor_eligibility(
+                self.sponsor_eligibility_json
+            )
+        except SponsorEligibilitySerializationError:
+            return None
 
 
 class ResearchPriority(db.Model):
@@ -750,6 +775,54 @@ def get_research_priorities(organization, initiative):
         initiative_id=initiative.id,
         is_active=True
     ).order_by(ResearchPriority.priority.asc()).all()
+
+
+def get_category_research_decision(category_slug):
+    """Return the persisted deterministic gate for one active category."""
+
+    organization = get_active_organization()
+    initiative = get_active_initiative()
+
+    if (
+        organization is None
+        or initiative is None
+        or initiative.organization_id != organization.id
+    ):
+        return CategoryResearchDecision(
+            allowed=False,
+            reason=(
+                "Complete organization and sponsorship initiative setup "
+                "before category research."
+            ),
+            reason_code="workspace_setup_required",
+        )
+
+    category = SponsorCategory.query.filter_by(
+        organization_id=organization.id,
+        initiative_id=initiative.id,
+        slug=category_slug,
+        is_active=True,
+    ).first()
+    if category is None:
+        return CategoryResearchDecision(
+            allowed=False,
+            reason=(
+                "This sponsor category is not available for the active "
+                "initiative."
+            ),
+            reason_code="category_not_available",
+        )
+
+    intelligence = get_sponsorship_intelligence(
+        organization,
+        initiative,
+    )
+    eligibility = (
+        getattr(intelligence, "sponsor_eligibility", None)
+        if intelligence is not None
+        else None
+    )
+    return evaluate_category_research(eligibility, category)
 
 
 def run_workspace_intelligence_generation(
@@ -1385,6 +1458,23 @@ def workspace():
         organization,
         initiative,
     )
+    categories = (
+        get_sponsor_categories(organization, initiative)
+        if intelligence
+        else []
+    )
+    eligibility = (
+        getattr(intelligence, "sponsor_eligibility", None)
+        if intelligence is not None
+        else None
+    )
+    category_research_decisions = {
+        category.slug: evaluate_category_research(
+            eligibility,
+            category,
+        )
+        for category in categories
+    }
 
     return render_template(
         "workspace.html",
@@ -1394,11 +1484,8 @@ def workspace():
         data=data,
         intelligence=intelligence,
         generation_job=generation_job,
-        categories=(
-            get_sponsor_categories(organization, initiative)
-            if intelligence
-            else []
-        ),
+        categories=categories,
+        category_research_decisions=category_research_decisions,
         assets=(
             get_sponsorship_assets(organization, initiative)
             if intelligence
@@ -1445,11 +1532,21 @@ def generate_workspace_sponsorship_intelligence():
 
 @app.route("/prospects/<category>")
 def prospects(category):
+    decision = get_category_research_decision(category)
+    if not decision.allowed:
+        flash(decision.reason, "warning")
+        return redirect(url_for("workspace"))
+
     return render_template("prospects.html", category=category, prospects=PROSPECTS.get(category, []))
 
 
 @app.route("/prospect/<category>/<int:index>", methods=["GET", "POST"])
 def prospect(category, index):
+    decision = get_category_research_decision(category)
+    if not decision.allowed:
+        flash(decision.reason, "warning")
+        return redirect(url_for("workspace"))
+
     p = PROSPECTS[category][index]
 
     existing_opportunity = Opportunity.query.filter_by(
@@ -1569,6 +1666,11 @@ def validate_outreach_readiness(contact, outreach):
 
 @app.route("/approve/<category>/<int:index>", methods=["POST"])
 def approve(category, index):
+    decision = get_category_research_decision(category)
+    if not decision.allowed:
+        flash(decision.reason, "warning")
+        return redirect(url_for("workspace"))
+
     p = PROSPECTS[category][index]
     prospect_key = get_prospect_key(category, index)
 

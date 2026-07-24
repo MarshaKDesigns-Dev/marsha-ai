@@ -154,6 +154,7 @@
 {% if intelligence %}
 {% set analysis = intelligence.organization_analysis %}
 {% set strategy = intelligence.sponsorship_strategy %}
+{% set eligibility = intelligence.sponsor_eligibility %}
 
 <div class="card p-4 mb-4">
   <div class="eyebrow">ORGANIZATION ANALYSIS</div>
@@ -269,6 +270,76 @@
 </div>
 
 <div class="card p-4 mb-4">
+  <div class="eyebrow">SPONSOR ELIGIBILITY</div>
+
+  <div class="d-flex flex-wrap justify-content-between gap-2">
+    <h2 class="mb-0">Sponsor research safeguards</h2>
+    {% if eligibility %}
+    <span class="badge text-bg-{{ 'success' if not eligibility.research_blocked else 'warning' }}">
+      {{ eligibility.eligibility_status.value|replace('_', ' ')|title }}
+    </span>
+    {% endif %}
+  </div>
+
+  {% if eligibility %}
+  <p class="mt-3 mb-2">
+    <strong>Sponsor research allowed:</strong>
+    {{ 'Yes' if not eligibility.research_blocked else 'No' }}
+  </p>
+  <p class="mb-2">
+    <strong>Eligibility confidence:</strong>
+    {{ eligibility.confidence.value|title }}
+  </p>
+
+  {% if eligibility.excluded_industries %}
+  <h3 class="h5 mt-3">Excluded industries and categories</h3>
+  <ul>
+    {% for exclusion in eligibility.excluded_industries %}
+    <li>
+      <strong>{{ exclusion.industry_label }}</strong>:
+      {{ exclusion.reason_code|replace('_', ' ') }}
+    </li>
+    {% endfor %}
+  </ul>
+  {% endif %}
+
+  {% if eligibility.audience_age_context.value == 'unclear' %}
+  <div class="alert alert-warning mb-3">
+    Audience age context is unclear. Confirm the audience age before beginning
+    sponsor research.
+  </div>
+  {% endif %}
+
+  {% if eligibility.confidence.value == 'low' and eligibility.audience_age_context.value != 'unclear' %}
+  <div class="alert alert-warning mb-3">
+    Some eligibility facts remain uncertain. Review the missing information
+    before beginning sponsor research.
+  </div>
+  {% endif %}
+
+  {% if eligibility.blocking_reasons or eligibility.missing_information %}
+  <div class="alert alert-warning mb-3">
+    {% for reason in eligibility.blocking_reasons %}
+    <div>{{ reason|replace('_', ' ')|capitalize }}</div>
+    {% endfor %}
+    {% for item in eligibility.missing_information %}
+    <div>Missing: {{ item|replace('_', ' ') }}</div>
+    {% endfor %}
+  </div>
+  {% endif %}
+
+  <p class="small text-muted mb-0">
+    Eligibility rules version: {{ eligibility.rule_version }}
+  </p>
+  {% else %}
+  <div class="alert alert-warning mt-3 mb-0">
+    Sponsor eligibility analysis has not been generated. Regenerate
+    sponsorship intelligence before beginning category research.
+  </div>
+  {% endif %}
+</div>
+
+<div class="card p-4 mb-4">
   <div class="eyebrow">RECOMMENDED SPONSOR CATEGORIES</div>
 
   <h2>Where would you like to begin?</h2>
@@ -292,6 +363,7 @@
 
       <tbody>
         {% for category in categories %}
+        {% set category_decision = (category_research_decisions|default({})).get(category.slug) %}
         <tr>
           <td>
             <span class="score">{{ category.score }}</span>
@@ -317,12 +389,28 @@
           </td>
 
           <td class="text-end">
+            {% if category_decision and category_decision.allowed %}
             <a
               class="btn btn-sm btn-dark"
               href="{{ url_for('prospects', category=category.slug) }}"
             >
               Research This Category
             </a>
+            {% else %}
+            <button
+              class="btn btn-sm btn-secondary"
+              type="button"
+              disabled
+              title="{{ category_decision.reason if category_decision else 'Sponsor eligibility analysis is required.' }}"
+            >
+              Research This Category
+            </button>
+            {% if category_decision and category_decision.reason %}
+            <div class="small text-muted mt-1">
+              {{ category_decision.reason }}
+            </div>
+            {% endif %}
+            {% endif %}
           </td>
         </tr>
         {% endfor %}

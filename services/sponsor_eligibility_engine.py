@@ -173,6 +173,7 @@ class SponsorEligibilityEngine:
 
         return SponsorEligibilityAnalysis(
             rule_version=self.ruleset.version,
+            normalized_facts=facts,
             audience_age_context=context.age_context,
             audience_type=(
                 facts.analyzed_target_audiences

@@ -111,6 +111,7 @@ class SponsorEligibilityAnalysis(BaseModel):
     model_config = ConfigDict(frozen=True)
 
     rule_version: str
+    normalized_facts: EligibilityFacts
     audience_age_context: AudienceAgeContext
     audience_type: list[str]
     initiative_or_event_type: str

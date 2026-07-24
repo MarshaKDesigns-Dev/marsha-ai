@@ -21,6 +21,11 @@ from services.sponsor_categories import (
     SponsorCategoryRecommendation,
     SponsorCategorySet,
 )
+from services.sponsor_eligibility import EligibilityFacts
+from services.sponsor_eligibility_engine import SponsorEligibilityEngine
+from services.sponsor_eligibility_serialization import (
+    deserialize_sponsor_eligibility,
+)
 from services.sponsorship_assets import (
     SponsorshipAssetRecommendation,
     SponsorshipAssetSet,
@@ -369,6 +374,14 @@ def intelligence_result():
         sponsorship_strategy=strategy,
         sponsor_categories=categories,
         sponsorship_assets=assets,
+        sponsor_eligibility=SponsorEligibilityEngine().evaluate(
+            EligibilityFacts(
+                mission="Expand access to community arts.",
+                location="Durham, NC",
+                initiative_name="Summer Arts Festival",
+                audience="Families and children",
+            )
+        ),
         research_priorities=priorities,
     )
 
@@ -416,6 +429,9 @@ def test_persistence_saves_complete_intelligence_package(
     ) == 3
 
     assert session.execute.call_count == 3
+    assert deserialize_sponsor_eligibility(
+        record.sponsor_eligibility_json
+    ) == intelligence_result.sponsor_eligibility
     session.commit.assert_called_once()
     session.rollback.assert_not_called()
 
@@ -472,6 +488,37 @@ def test_persistence_can_flush_without_committing(
     session.rollback.assert_not_called()
 
 
+def test_eligibility_serialization_failure_rolls_back_atomically(
+    monkeypatch,
+    organization,
+    initiative,
+    intelligence_result,
+):
+    session = MagicMock()
+    session.scalar.return_value = None
+
+    def fail_serialization(_analysis):
+        raise ValueError("controlled serialization failure")
+
+    monkeypatch.setattr(
+        "services.sponsorship_intelligence_persistence."
+        "serialize_sponsor_eligibility",
+        fail_serialization,
+    )
+
+    with pytest.raises(SponsorshipIntelligencePersistenceError):
+        persist_sponsorship_intelligence(
+            organization,
+            initiative,
+            intelligence_result,
+            session=session,
+        )
+
+    session.commit.assert_not_called()
+    session.rollback.assert_called_once()
+    session.execute.assert_not_called()
+
+
 def test_persistence_updates_existing_intelligence_record(
     organization,
     initiative,
@@ -520,6 +567,21 @@ def test_persistence_updates_existing_intelligence_record(
     )
 
     session.commit.assert_called_once()
+
+
+def test_existing_intelligence_without_eligibility_json_is_supported(
+    organization,
+    initiative,
+):
+    existing = SponsorshipIntelligence(
+        organization_id=organization.id,
+        initiative_id=initiative.id,
+        organization_analysis_json="{}",
+        sponsorship_strategy_json="{}",
+        sponsor_eligibility_json=None,
+    )
+
+    assert existing.sponsor_eligibility is None
 
 
 def test_category_fields_are_mapped(

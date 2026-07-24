@@ -2,6 +2,12 @@ from types import SimpleNamespace
 
 import app as app_module
 import pytest
+from services.sponsor_eligibility import EligibilityFacts
+from services.sponsor_eligibility_engine import SponsorEligibilityEngine
+from services.sponsor_eligibility_gate import (
+    CategoryResearchDecision,
+    evaluate_category_research,
+)
 
 
 def test_generation_route_enqueues_without_synchronous_generation(monkeypatch):
@@ -383,3 +389,123 @@ def test_workspace_template_exposes_generated_intelligence():
     assert "RESEARCH PRIORITIES" not in template
     assert "Sponsorship intelligence generation is queued." in template
     assert "Sponsorship intelligence is being generated." in template
+
+
+def test_workspace_renders_persisted_eligibility_and_allowed_category():
+    eligibility = SponsorEligibilityEngine().evaluate(
+        EligibilityFacts(
+            mission="Support professional education.",
+            location="Charlotte, NC",
+            initiative_name="Leadership Conference",
+            audience="Adults 21 and older",
+        )
+    )
+    category = SimpleNamespace(
+        slug="technology",
+        category="Technology",
+        score=90,
+        fit="Strong alignment",
+        ideal_sponsor_profile="Business technology providers",
+        research_direction="Research regional providers",
+    )
+
+    with app_module.app.test_request_context("/workspace"):
+        html = app_module.render_template(
+            "workspace.html",
+            org={},
+            organization=SimpleNamespace(
+                name="Leadership Association",
+                location="Charlotte, NC",
+            ),
+            initiative=SimpleNamespace(name="Leadership Conference"),
+            data={},
+            intelligence=SimpleNamespace(
+                organization_analysis={},
+                sponsorship_strategy={},
+                sponsor_eligibility=eligibility,
+            ),
+            generation_job=None,
+            categories=[category],
+            category_research_decisions={
+                category.slug: evaluate_category_research(
+                    eligibility,
+                    category,
+                )
+            },
+            assets=[],
+            pipeline=[],
+        )
+
+    assert "SPONSOR ELIGIBILITY" in html
+    assert "Sponsor research allowed:" in html
+    assert "Yes" in html
+    assert "sponsor-eligibility-v1" in html
+    assert 'href="/prospects/technology"' in html
+
+
+def test_workspace_renders_legacy_eligibility_warning():
+    with app_module.app.test_request_context("/workspace"):
+        html = app_module.render_template(
+            "workspace.html",
+            org={},
+            organization=SimpleNamespace(name="Example", location=""),
+            initiative=SimpleNamespace(name="Example Initiative"),
+            data={},
+            intelligence=SimpleNamespace(
+                organization_analysis={},
+                sponsorship_strategy={},
+                sponsor_eligibility=None,
+            ),
+            generation_job=None,
+            categories=[],
+            category_research_decisions={},
+            assets=[],
+            pipeline=[],
+        )
+
+    assert "Sponsor eligibility analysis has not been generated." in html
+
+
+@pytest.mark.parametrize(
+    ("method", "path"),
+    [
+        ("get", "/prospects/healthcare"),
+        ("get", "/prospect/healthcare/0"),
+        ("post", "/approve/healthcare/0"),
+    ],
+)
+def test_direct_research_routes_enforce_server_side_gate(
+    monkeypatch,
+    method,
+    path,
+):
+    monkeypatch.setattr(
+        app_module,
+        "get_category_research_decision",
+        lambda category: CategoryResearchDecision(
+            allowed=False,
+            reason="Research is blocked by deterministic eligibility.",
+            reason_code="blocked_for_test",
+        ),
+    )
+
+    client = app_module.app.test_client()
+    response = getattr(client, method)(path)
+
+    assert response.status_code == 302
+    assert response.headers["Location"].endswith("/workspace")
+
+
+def test_allowed_category_research_reaches_existing_prospect_page(
+    monkeypatch,
+):
+    monkeypatch.setattr(
+        app_module,
+        "get_category_research_decision",
+        lambda category: CategoryResearchDecision(allowed=True),
+    )
+
+    response = app_module.app.test_client().get("/prospects/healthcare")
+
+    assert response.status_code == 200
+    assert b"Duke Health" in response.data
