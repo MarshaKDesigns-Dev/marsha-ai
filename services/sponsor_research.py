@@ -27,8 +27,12 @@ from services.sponsor_eligibility import SponsorEligibilityAnalysis
 from services.sponsor_eligibility_gate import evaluate_category_research
 
 
-DEFAULT_MODEL = os.getenv("OPENAI_MODEL", "gpt-5-mini")
+DEFAULT_MODEL = os.getenv(
+    "OPENAI_SPONSOR_RESEARCH_MODEL",
+    "gpt-4.1-mini",
+)
 SPONSOR_RESEARCH_TIMEOUT_SECONDS = 90.0
+SPONSOR_RESEARCH_MAX_PROSPECTS = 5
 
 
 class SponsorResearchError(RuntimeError):
@@ -38,9 +42,27 @@ class SponsorResearchError(RuntimeError):
 class SponsorResearchUnavailableError(SponsorResearchError):
     """Raised when the research service cannot be used."""
 
+    def __init__(
+        self,
+        message: str,
+        *,
+        reason_code: str = "research_service_unavailable",
+    ) -> None:
+        super().__init__(message)
+        self.reason_code = reason_code
+
 
 class NoCredibleProspectsError(SponsorResearchError):
     """Raised when no evidence-backed prospects pass validation."""
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        reason_code: str = "no_credible_prospects",
+    ) -> None:
+        super().__init__(message)
+        self.reason_code = reason_code
 
 
 class EvidenceType(str, Enum):
@@ -171,7 +193,7 @@ class SponsorResearchResult(BaseModel):
 
     prospects: list[SponsorProspectCandidate] = Field(
         default_factory=list,
-        max_length=8,
+        max_length=SPONSOR_RESEARCH_MAX_PROSPECTS,
     )
 
 
@@ -329,7 +351,7 @@ Approved category:
 Available sponsorship assets: {asset_summary}
 Deterministic industry exclusions: {exclusions}
 
-Use current public web sources. Return 3-8 real companies or organizations.
+Use current public web sources. Return 3-5 real companies or organizations.
 Every prospect must have at least one public source supporting its existence,
 location, community connection, sponsorship evidence, or strategic fit.
 Classify evidence as verified_sponsorship only when a source explicitly supports
@@ -337,9 +359,11 @@ sponsorship activity. Use community_involvement for verified community activity.
 Use strategic_fit when evidence supports only business, geographic, audience, or
 mission relevance. Never invent a company, program, partnership, contact, URL,
 email, phone number, sponsorship, or citation. Omit any candidate that conflicts
-with the exclusions. A public contact may be null when none is verified. Score
-mission fit, audience fit, geography, evidence, and contactability independently.
-Use today's actual date for research_date.
+with the exclusions. Include a public contact only when it is readily available
+in the same sources used to verify the company; do not perform additional
+searches solely to find contact details. A public contact may be null when none
+is verified. Score mission fit, audience fit, geography, evidence, and
+contactability independently. Use today's actual date for research_date.
 """
 
     try:
@@ -353,14 +377,28 @@ Use today's actual date for research_date.
             input=prompt,
             text_format=SponsorResearchResult,
         )
-    except (
-        APITimeoutError,
-        APIConnectionError,
-        AuthenticationError,
-        APIError,
-    ) as exc:
+    except APITimeoutError as exc:
         raise SponsorResearchUnavailableError(
-            "Sponsor research is temporarily unavailable. Please try again."
+            (
+                "Sponsor research took too long to complete. Please try "
+                "again."
+            ),
+            reason_code="openai_timeout",
+        ) from exc
+    except APIConnectionError as exc:
+        raise SponsorResearchUnavailableError(
+            "Sponsor research could not connect to the research service.",
+            reason_code="openai_connection_error",
+        ) from exc
+    except AuthenticationError as exc:
+        raise SponsorResearchUnavailableError(
+            "Sponsor research is not configured correctly.",
+            reason_code="openai_authentication_error",
+        ) from exc
+    except APIError as exc:
+        raise SponsorResearchUnavailableError(
+            "The sponsor research service is temporarily unavailable.",
+            reason_code="openai_api_error",
         ) from exc
     except Exception as exc:
         raise SponsorResearchError(
@@ -373,13 +411,39 @@ Use today's actual date for research_date.
             "Sponsor research returned an invalid result."
         )
 
+    parsed_prospect_count = len(parsed.prospects)
+    cited_urls = collect_web_search_source_urls(response)
+    if parsed_prospect_count == 0:
+        raise NoCredibleProspectsError(
+            (
+                "The research service found no companies with enough "
+                "credible public evidence for this category. No prospects "
+                "were saved."
+            ),
+            reason_code="no_candidates_returned",
+        )
+    if not cited_urls:
+        raise NoCredibleProspectsError(
+            (
+                "The research service returned potential companies, but "
+                "their public evidence could not be verified. No prospects "
+                "were saved."
+            ),
+            reason_code="web_evidence_not_returned",
+        )
+
     prospects = validate_researched_prospects(
         parsed,
-        cited_urls=collect_web_search_source_urls(response),
+        cited_urls=cited_urls,
         eligibility=eligibility,
     )
     if not prospects:
         raise NoCredibleProspectsError(
-            "No credible sponsor prospects were found for this category."
+            (
+                "Potential companies were found, but none passed the "
+                "evidence and sponsor-eligibility checks. No prospects "
+                "were saved."
+            ),
+            reason_code="candidates_failed_validation",
         )
     return prospects

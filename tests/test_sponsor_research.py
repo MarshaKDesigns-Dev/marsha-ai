@@ -5,6 +5,8 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 import pytest
+import httpx
+from openai import APITimeoutError
 from pydantic import ValidationError
 
 from services.sponsor_eligibility import EligibilityFacts
@@ -211,7 +213,7 @@ def test_no_placeholder_fallback_when_research_has_no_credible_results():
         response
     )
 
-    with pytest.raises(NoCredibleProspectsError):
+    with pytest.raises(NoCredibleProspectsError) as raised:
         research_sponsor_category(
             SimpleNamespace(
                 name="Example Organization",
@@ -234,6 +236,16 @@ def test_no_placeholder_fallback_when_research_has_no_credible_results():
             eligibility(),
             client=request_client,
         )
+
+    assert raised.value.reason_code == "no_candidates_returned"
+    assert "No prospects were saved." in str(raised.value)
+    request = request_client.with_options.return_value.responses.parse
+    assert request.call_args.kwargs["model"] == "gpt-4.1-mini"
+    assert "reasoning" not in request.call_args.kwargs
+    assert "Return 3-5 real companies" in request.call_args.kwargs["input"]
+    assert "additional\nsearches solely to find contact details" in (
+        request.call_args.kwargs["input"]
+    )
 
 
 def test_web_search_source_collection_uses_citations_and_sources():
@@ -293,3 +305,26 @@ def test_unexpected_sdk_failure_is_sanitized():
         )
 
     assert "sensitive provider response" not in str(raised.value)
+
+
+def test_openai_timeout_is_classified_and_sanitized():
+    request_client = MagicMock()
+    request_client.with_options.return_value.responses.parse.side_effect = (
+        APITimeoutError(httpx.Request("POST", "https://api.openai.com"))
+    )
+
+    with pytest.raises(SponsorResearchUnavailableError) as raised:
+        research_sponsor_category(
+            SimpleNamespace(),
+            SimpleNamespace(),
+            SimpleNamespace(),
+            [],
+            eligibility(),
+            client=request_client,
+        )
+
+    assert raised.value.reason_code == "openai_timeout"
+    assert str(raised.value) == (
+        "Sponsor research took too long to complete. Please try again."
+    )
+    assert raised.value.__cause__.__class__ is APITimeoutError

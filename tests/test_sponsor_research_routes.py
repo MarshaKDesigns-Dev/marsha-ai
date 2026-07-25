@@ -7,7 +7,14 @@ import app as app_module
 from services.sponsor_eligibility import EligibilityFacts
 from services.sponsor_eligibility_engine import SponsorEligibilityEngine
 from services.sponsor_eligibility_gate import CategoryResearchDecision
-from services.sponsor_research import NoCredibleProspectsError
+from services.sponsor_prospect_persistence import (
+    SponsorProspectPersistenceError,
+)
+from services.sponsor_research import (
+    NoCredibleProspectsError,
+    SponsorResearchError,
+    SponsorResearchUnavailableError,
+)
 
 
 def configure_route(monkeypatch):
@@ -147,3 +154,74 @@ def test_research_failure_preserves_existing_results(monkeypatch):
 
     assert response.status_code == 200
     assert b"Verified Existing Company" in response.data
+
+
+def test_unavailable_research_surfaces_specific_message_and_log(
+    monkeypatch,
+    caplog,
+):
+    configure_route(monkeypatch)
+    monkeypatch.setattr(
+        "services.sponsor_research.research_sponsor_category",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            SponsorResearchUnavailableError(
+                "Sponsor research took too long to complete. Please try again.",
+                reason_code="openai_timeout",
+            )
+        ),
+    )
+    caplog.set_level("WARNING")
+
+    response = app_module.app.test_client().post("/prospects/technology")
+
+    assert (
+        b"Sponsor research took too long to complete. Please try again."
+        in response.data
+    )
+    assert "sponsor_research_unavailable" in caplog.text
+    assert "error_code=openai_timeout" in caplog.text
+    assert "controlled" not in caplog.text
+
+
+def test_invalid_result_surfaces_specific_message_and_log(
+    monkeypatch,
+    caplog,
+):
+    configure_route(monkeypatch)
+    monkeypatch.setattr(
+        "services.sponsor_research.research_sponsor_category",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            SponsorResearchError("sensitive provider detail")
+        ),
+    )
+    caplog.set_level("WARNING")
+
+    response = app_module.app.test_client().post("/prospects/technology")
+
+    assert b"Sponsor research returned an invalid result." in response.data
+    assert "sponsor_research_invalid_result" in caplog.text
+    assert "sensitive provider detail" not in caplog.text
+
+
+def test_persistence_failure_surfaces_specific_message_and_log(
+    monkeypatch,
+    caplog,
+):
+    configure_route(monkeypatch)
+    monkeypatch.setattr(
+        "services.sponsor_research.research_sponsor_category",
+        lambda *args, **kwargs: [object()],
+    )
+    monkeypatch.setattr(
+        "services.sponsor_prospect_persistence.persist_sponsor_prospects",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            SponsorProspectPersistenceError("sensitive database detail")
+        ),
+    )
+    caplog.set_level("WARNING")
+
+    response = app_module.app.test_client().post("/prospects/technology")
+
+    assert b"prospects could not be saved" in response.data
+    assert "sponsor_research_persistence_failed" in caplog.text
+    assert "sensitive database detail" not in caplog.text

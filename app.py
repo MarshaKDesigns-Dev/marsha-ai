@@ -3,6 +3,7 @@
 import os, json, smtplib, sys
 from email.message import EmailMessage
 from datetime import UTC, date, datetime, timedelta
+from time import monotonic
 from flask import render_template, request, redirect, url_for, flash, session
 from openai import OpenAI
 from application import app
@@ -1860,9 +1861,20 @@ def prospects(category):
         from services.sponsor_research import (
             NoCredibleProspectsError,
             SponsorResearchError,
+            SponsorResearchUnavailableError,
             research_sponsor_category,
         )
 
+        research_started_at = monotonic()
+        app.logger.info(
+            (
+                "sponsor_research_started organization_id=%s "
+                "initiative_id=%s category_slug=%s"
+            ),
+            organization.id,
+            initiative.id,
+            category,
+        )
         try:
             candidates = research_sponsor_category(
                 organization,
@@ -1871,22 +1883,104 @@ def prospects(category):
                 get_sponsorship_assets(organization, initiative),
                 intelligence.sponsor_eligibility,
             )
-            persist_sponsor_prospects(
+            saved_prospects = persist_sponsor_prospects(
                 organization,
                 initiative,
                 category_record,
                 candidates,
             )
+            app.logger.info(
+                (
+                    "sponsor_research_completed organization_id=%s "
+                    "initiative_id=%s category_slug=%s prospect_count=%s "
+                    "elapsed_seconds=%.3f"
+                ),
+                organization.id,
+                initiative.id,
+                category,
+                len(saved_prospects),
+                monotonic() - research_started_at,
+            )
             flash(
-                "Evidence-backed sponsor research completed.",
+                (
+                    f"Evidence-backed sponsor research completed. "
+                    f"{len(saved_prospects)} prospect"
+                    f"{'' if len(saved_prospects) == 1 else 's'} saved."
+                ),
                 "success",
             )
         except NoCredibleProspectsError as exc:
+            app.logger.warning(
+                (
+                    "sponsor_research_no_results organization_id=%s "
+                    "initiative_id=%s category_slug=%s reason_code=%s "
+                    "elapsed_seconds=%.3f"
+                ),
+                organization.id,
+                initiative.id,
+                category,
+                getattr(exc, "reason_code", "no_credible_prospects"),
+                monotonic() - research_started_at,
+            )
             flash(str(exc), "warning")
-        except (SponsorResearchError, SponsorProspectPersistenceError):
+        except SponsorResearchUnavailableError as exc:
+            app.logger.warning(
+                (
+                    "sponsor_research_unavailable organization_id=%s "
+                    "initiative_id=%s category_slug=%s "
+                    "error_code=%s "
+                    "elapsed_seconds=%.3f"
+                ),
+                organization.id,
+                initiative.id,
+                category,
+                getattr(
+                    exc,
+                    "reason_code",
+                    "research_service_unavailable",
+                ),
+                monotonic() - research_started_at,
+            )
+            flash(str(exc), "warning")
+        except SponsorResearchError:
+            app.logger.warning(
+                (
+                    "sponsor_research_invalid_result organization_id=%s "
+                    "initiative_id=%s category_slug=%s "
+                    "error_code=invalid_research_result "
+                    "elapsed_seconds=%.3f"
+                ),
+                organization.id,
+                initiative.id,
+                category,
+                monotonic() - research_started_at,
+            )
             flash(
-                "Sponsor research could not be completed safely. "
-                "Existing prospects were preserved.",
+                (
+                    "Sponsor research returned an invalid result. No new "
+                    "prospects were saved, and existing prospects were "
+                    "preserved."
+                ),
+                "warning",
+            )
+        except SponsorProspectPersistenceError:
+            app.logger.warning(
+                (
+                    "sponsor_research_persistence_failed organization_id=%s "
+                    "initiative_id=%s category_slug=%s "
+                    "error_code=prospect_persistence_failed "
+                    "elapsed_seconds=%.3f"
+                ),
+                organization.id,
+                initiative.id,
+                category,
+                monotonic() - research_started_at,
+            )
+            flash(
+                (
+                    "Sponsor research completed, but the prospects could not "
+                    "be saved. Existing prospects were preserved."
+                ),
                 "warning",
             )
 
