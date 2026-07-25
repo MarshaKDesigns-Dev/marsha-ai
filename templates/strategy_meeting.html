@@ -1,0 +1,94 @@
+{% extends "base.html" %}
+
+{% block title %}Strategy Meeting · Marsha AI{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+  <div class="col-xl-9">
+    <header class="mb-4">
+      <div class="eyebrow">STRATEGY WORKER</div>
+      <h1>Strategy Meeting</h1>
+      <p class="lead mb-0">
+        Tell me what this sponsorship initiative needs to accomplish. I’ll use
+        your answers to prepare the strategy and recommended sponsorship assets.
+      </p>
+    </header>
+
+    <form method="post" class="card p-4">
+      {% set values = form_values or {} %}
+
+      <label class="form-label fw-bold" for="sponsorship_goals">
+        Sponsorship Goals
+      </label>
+      <textarea class="form-control mb-3" id="sponsorship_goals"
+        name="sponsorship_goals" rows="4" required
+        placeholder="What do you want sponsorship to make possible?"
+      >{{ values.get('sponsorship_goals', initiative.sponsorship_goals or '') }}</textarea>
+
+      <label class="form-label fw-bold" for="audience">
+        Audience and Age Range
+      </label>
+      <textarea class="form-control mb-3" id="audience" name="audience"
+        rows="4" required
+        aria-describedby="audience-help"
+        placeholder="Families with children, youth ages 13–17, adults 21+, or another clear age range"
+      >{{ values.get('audience', initiative.audience or '') }}</textarea>
+      <div class="form-text mb-3" id="audience-help">
+        Include whether your audience is children, youth, adults only, or a
+        mixed-age audience. Marsha AI uses this to apply brand-safety rules.
+      </div>
+
+      <label class="form-label fw-bold" for="estimated_reach">
+        Estimated Reach
+      </label>
+      <textarea class="form-control mb-3" id="estimated_reach"
+        name="estimated_reach" rows="3" required
+        placeholder="Attendance, members, subscribers, followers, or community reach"
+      >{{ values.get('estimated_reach', initiative.estimated_reach or '') }}</textarea>
+
+      <label class="form-label fw-bold" for="needs">
+        Sponsorship Needs
+      </label>
+      <textarea class="form-control mb-3" id="needs" name="needs"
+        rows="4" required
+        placeholder="Funding, products, services, venue, technology, or other support"
+      >{{ values.get('needs', initiative.needs or '') }}</textarea>
+
+      <label class="form-label fw-bold" for="campaign_goals">
+        Campaign Goals
+      </label>
+      <textarea class="form-control mb-3" id="campaign_goals"
+        name="campaign_goals" rows="4" required
+        placeholder="What outcome would make this sponsorship campaign successful?"
+      >{{ values.get('goals', initiative.goals or '') }}</textarea>
+
+      <div class="row g-3">
+        <div class="col-md-7">
+          <label class="form-label fw-bold" for="fundraising_target">
+            Fundraising Target
+          </label>
+          <input class="form-control" id="fundraising_target"
+            name="fundraising_target" required
+            placeholder="$25,000 cash and $10,000 in-kind"
+            value="{{ values.get('fundraising_target', initiative.fundraising_target or '') }}">
+        </div>
+        <div class="col-md-5">
+          <label class="form-label fw-bold" for="deadline">Deadline</label>
+          <input class="form-control" type="date" id="deadline"
+            name="deadline" required
+            value="{{ values.get('deadline', initiative.deadline.isoformat() if initiative.deadline else '') }}">
+        </div>
+      </div>
+
+      <div class="d-flex flex-wrap gap-2 justify-content-end mt-4">
+        <a class="btn btn-outline-dark" href="{{ url_for('workspace') }}">
+          Return to Dashboard
+        </a>
+        <button class="btn btn-gold" type="submit">
+          Complete Meeting and Build Strategy
+        </button>
+      </div>
+    </form>
+  </div>
+</div>
+{% endblock %}

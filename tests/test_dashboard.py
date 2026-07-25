@@ -66,12 +66,40 @@ def build(**overrides):
         "intelligence": intelligence(),
         "generation_job": None,
         "top_category": category(),
+        "assets": [
+            SimpleNamespace(
+                approval_status="Approved",
+                is_active=True,
+            )
+        ],
         "prospects": [],
         "opportunities": [],
         "now": NOW,
     }
     values.update(overrides)
     return build_dashboard(**values)
+
+
+def test_completed_strategy_requires_asset_review_before_research():
+    dashboard = build(assets=[])
+
+    assert dashboard.top_priority.title == "Review Sponsorship Assets."
+    assert dashboard.top_priority.action.endpoint == (
+        "sponsorship_asset_review"
+    )
+    assert dashboard.workers[1].status == "Waiting for you"
+
+
+def test_asset_review_precedes_eligibility_remediation_until_approval():
+    dashboard = build(
+        intelligence=intelligence(
+            blocked=True,
+            missing=["audience_age_context"],
+        ),
+        assets=[],
+    )
+
+    assert dashboard.top_priority.title == "Review Sponsorship Assets."
 
 
 def test_dashboard_builds_time_aware_greeting_and_summary():
@@ -124,6 +152,24 @@ def test_failed_work_is_the_highest_priority():
     assert dashboard.top_priority.title == "Strategy needs attention"
     assert dashboard.top_priority.action.label == "Try again"
     assert dashboard.top_priority.supporting_line == "Safe failure."
+
+
+def test_active_regeneration_precedes_stale_intelligence_state():
+    dashboard = build(
+        intelligence=intelligence(
+            blocked=True,
+            missing=["audience_age_context"],
+        ),
+        generation_job=SimpleNamespace(status="processing"),
+        assets=[
+            SimpleNamespace(
+                approval_status="Approved",
+                is_active=True,
+            )
+        ],
+    )
+
+    assert dashboard.top_priority.title == "Strategy work is underway"
 
 
 def test_blocked_eligibility_precedes_overdue_follow_up():

@@ -29,6 +29,9 @@ from services.sponsorship_intelligence import (
 from services.sponsor_eligibility_serialization import (
     serialize_sponsor_eligibility,
 )
+from services.sponsor_research_readiness import (
+    validate_approval_status,
+)
 
 
 class SponsorshipIntelligencePersistenceError(RuntimeError):
@@ -140,34 +143,58 @@ def _replace_assets(
     initiative: Any,
     result: SponsorshipIntelligenceResult,
 ) -> None:
-    """Replace the initiative's sponsorship assets."""
+    """Replace generated assets while preserving custom assets and approvals."""
 
+    existing_generated = session.scalars(
+        select(SponsorshipAsset).where(
+            SponsorshipAsset.initiative_id == initiative.id,
+            SponsorshipAsset.source == "generated",
+        )
+    ).all()
+    preserved_by_name = {}
+    for asset in existing_generated:
+        try:
+            status = validate_approval_status(
+                getattr(asset, "approval_status", "Pending")
+            )
+        except ValueError:
+            status = "Pending"
+        if status in {"Approved", "Rejected"}:
+            preserved_by_name[asset.name.strip().casefold()] = asset
     session.execute(
         delete(SponsorshipAsset).where(
-            SponsorshipAsset.initiative_id == initiative.id
+            SponsorshipAsset.initiative_id == initiative.id,
+            SponsorshipAsset.source == "generated",
+            SponsorshipAsset.approval_status == "Pending",
         )
     )
 
     for asset in result.sponsorship_assets.assets:
-        session.add(
-            SponsorshipAsset(
+        normalized_name = asset.name.strip().casefold()
+        database_asset = preserved_by_name.get(normalized_name)
+        if database_asset is None:
+            database_asset = SponsorshipAsset(
                 organization_id=organization.id,
                 initiative_id=initiative.id,
-                name=asset.name,
-                value=asset.sponsor_value,
-                capacity=asset.capacity,
-                description=asset.description,
-                sponsor_value=asset.sponsor_value,
-                audience_value=asset.audience_value,
-                delivery_method=asset.delivery_method,
-                exclusivity=asset.exclusivity,
-                measurement_method=asset.measurement_method,
-                recommended_categories_json=_json_dump(
-                    asset.recommended_for_categories
-                ),
+                approval_status="Pending",
+                source="generated",
                 is_active=True,
             )
+            session.add(database_asset)
+
+        database_asset.name = asset.name
+        database_asset.value = asset.sponsor_value
+        database_asset.capacity = asset.capacity
+        database_asset.description = asset.description
+        database_asset.sponsor_value = asset.sponsor_value
+        database_asset.audience_value = asset.audience_value
+        database_asset.delivery_method = asset.delivery_method
+        database_asset.exclusivity = asset.exclusivity
+        database_asset.measurement_method = asset.measurement_method
+        database_asset.recommended_categories_json = _json_dump(
+            asset.recommended_for_categories
         )
+        database_asset.is_active = True
 
 
 def _replace_research_priorities(

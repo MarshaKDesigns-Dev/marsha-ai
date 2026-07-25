@@ -12,6 +12,11 @@ from services.sponsor_eligibility_gate import (
     CategoryResearchDecision,
     evaluate_category_research,
 )
+from services.sponsor_research_readiness import (
+    audience_age_context_is_clear,
+    evaluate_sponsor_research_readiness,
+    validate_approval_status,
+)
 
 if __name__ == "__main__":
     sys.modules.setdefault("app", sys.modules[__name__])
@@ -102,6 +107,9 @@ class SponsorshipInitiative(db.Model):
     audience = db.Column(db.Text)
     needs = db.Column(db.Text)
     goals = db.Column(db.Text)
+    sponsorship_goals = db.Column(db.Text)
+    estimated_reach = db.Column(db.Text)
+    strategy_meeting_completed_at = db.Column(db.DateTime)
     status = db.Column(db.String(50), default="Active")
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(
@@ -517,11 +525,29 @@ class SponsorshipAsset(db.Model):
         default="[]"
     )
     is_active = db.Column(db.Boolean, default=True)
+    approval_status = db.Column(
+        db.String(20),
+        nullable=False,
+        default="Pending",
+    )
+    approval_updated_at = db.Column(db.DateTime)
+    source = db.Column(
+        db.String(20),
+        nullable=False,
+        default="generated",
+    )
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(
         db.DateTime,
         default=datetime.utcnow,
         onupdate=datetime.utcnow
+    )
+
+    __table_args__ = (
+        db.CheckConstraint(
+            "approval_status IN ('Pending', 'Approved', 'Rejected')",
+            name="ck_sponsorship_asset_approval_status",
+        ),
     )
 
     @property
@@ -704,7 +730,9 @@ def get_initiative_profile():
             "deadline": "",
             "audience": "",
             "needs": "",
-            "goals": ""
+            "goals": "",
+            "sponsorship_goals": "",
+            "estimated_reach": "",
         }
 
     return {
@@ -713,7 +741,9 @@ def get_initiative_profile():
         "deadline": initiative.deadline.isoformat() if initiative.deadline else "",
         "audience": initiative.audience or "",
         "needs": initiative.needs or "",
-        "goals": initiative.goals or ""
+        "goals": initiative.goals or "",
+        "sponsorship_goals": initiative.sponsorship_goals or "",
+        "estimated_reach": initiative.estimated_reach or "",
     }
 
 
@@ -821,7 +851,11 @@ def get_research_priorities(organization, initiative):
     ).order_by(ResearchPriority.priority.asc()).all()
 
 
-def get_category_research_decision(category_slug):
+def get_category_research_decision(
+    category_slug,
+    *,
+    require_research_readiness=True,
+):
     """Return the persisted deterministic gate for one active category."""
 
     organization = get_active_organization()
@@ -866,7 +900,25 @@ def get_category_research_decision(category_slug):
         if intelligence is not None
         else None
     )
-    return evaluate_category_research(eligibility, category)
+    eligibility_decision = evaluate_category_research(
+        eligibility,
+        category,
+    )
+    if not eligibility_decision.allowed:
+        return eligibility_decision
+    if not require_research_readiness:
+        return eligibility_decision
+
+    readiness = evaluate_sponsor_research_readiness(
+        initiative,
+        get_sponsorship_assets(organization, initiative),
+        intelligence=intelligence,
+    )
+    return CategoryResearchDecision(
+        allowed=readiness.allowed,
+        reason=readiness.reason,
+        reason_code=readiness.reason_code,
+    )
 
 
 def get_active_sponsor_category(category_slug):
@@ -1463,6 +1515,11 @@ def workspace():
         else []
     )
     top_category = categories[0] if categories else None
+    assets = (
+        get_sponsorship_assets(organization, initiative)
+        if intelligence
+        else []
+    )
     prospects = SponsorProspect.query.filter_by(
         organization_id=organization.id,
         initiative_id=initiative.id,
@@ -1480,6 +1537,7 @@ def workspace():
         intelligence=intelligence,
         generation_job=generation_job,
         top_category=top_category,
+        assets=assets,
         prospects=prospects,
         opportunities=opportunities,
     )
@@ -1490,6 +1548,255 @@ def workspace():
         initiative=initiative,
         dashboard=dashboard,
     )
+
+
+@app.route("/strategy-meeting", methods=["GET", "POST"])
+def strategy_meeting():
+    """Collect the operating context required by the Strategy Worker."""
+
+    organization = get_active_organization()
+    initiative = get_active_initiative()
+    if (
+        organization is None
+        or initiative is None
+        or initiative.organization_id != organization.id
+    ):
+        flash(
+            "Complete organization and sponsorship initiative setup first.",
+            "warning",
+        )
+        return redirect(url_for("setup"))
+
+    if request.method == "POST":
+        fields = {
+            "sponsorship_goals": request.form.get(
+                "sponsorship_goals",
+                "",
+            ).strip(),
+            "audience": request.form.get("audience", "").strip(),
+            "estimated_reach": request.form.get(
+                "estimated_reach",
+                "",
+            ).strip(),
+            "needs": request.form.get("needs", "").strip(),
+            "goals": request.form.get("campaign_goals", "").strip(),
+            "fundraising_target": request.form.get(
+                "fundraising_target",
+                "",
+            ).strip(),
+        }
+        deadline_value = request.form.get("deadline", "").strip()
+        missing = [
+            label
+            for key, label in (
+                ("sponsorship_goals", "sponsorship goals"),
+                ("audience", "audience"),
+                ("estimated_reach", "estimated reach"),
+                ("needs", "sponsorship needs"),
+                ("goals", "campaign goals"),
+                ("fundraising_target", "fundraising target"),
+            )
+            if not fields[key]
+        ]
+        if not deadline_value:
+            missing.append("deadline")
+        if fields["audience"] and not audience_age_context_is_clear(
+            fields["audience"]
+        ):
+            missing.append("audience age range")
+
+        try:
+            deadline = (
+                datetime.strptime(deadline_value, "%Y-%m-%d").date()
+                if deadline_value
+                else None
+            )
+        except ValueError:
+            deadline = None
+            if "deadline" not in missing:
+                missing.append("valid deadline")
+
+        if missing:
+            flash(
+                "Complete the Strategy Meeting fields: "
+                + ", ".join(missing)
+                + ".",
+                "warning",
+            )
+            return render_template(
+                "strategy_meeting.html",
+                organization=organization,
+                initiative=initiative,
+                form_values={**fields, "deadline": deadline_value},
+            )
+
+        for name, value in fields.items():
+            setattr(initiative, name, value)
+        initiative.deadline = deadline
+        initiative.strategy_meeting_completed_at = (
+            datetime.now(UTC).replace(tzinfo=None)
+        )
+        db.session.commit()
+
+        _, created = enqueue_workspace_intelligence_generation(
+            organization,
+            initiative,
+            regenerate=get_sponsorship_intelligence(
+                organization,
+                initiative,
+            )
+            is not None,
+        )
+        flash(
+            (
+                "Strategy Meeting completed. Your Strategy Worker has started."
+                if created
+                else "Strategy Meeting completed. Strategy work is already "
+                "in progress."
+            ),
+            "success" if created else "warning",
+        )
+        return redirect(url_for("workspace"))
+
+    return render_template(
+        "strategy_meeting.html",
+        organization=organization,
+        initiative=initiative,
+        form_values=None,
+    )
+
+
+def _active_sponsorship_asset(asset_id):
+    organization = get_active_organization()
+    initiative = get_active_initiative()
+    if (
+        organization is None
+        or initiative is None
+        or initiative.organization_id != organization.id
+    ):
+        return None
+    return SponsorshipAsset.query.filter_by(
+        id=asset_id,
+        organization_id=organization.id,
+        initiative_id=initiative.id,
+        is_active=True,
+    ).first()
+
+
+@app.route("/workspace/assets")
+def sponsorship_asset_review():
+    organization = get_active_organization()
+    initiative = get_active_initiative()
+    if (
+        organization is None
+        or initiative is None
+        or initiative.organization_id != organization.id
+    ):
+        flash(
+            "Complete organization and sponsorship initiative setup first.",
+            "warning",
+        )
+        return redirect(url_for("setup"))
+
+    intelligence = get_sponsorship_intelligence(
+        organization,
+        initiative,
+    )
+    if intelligence is None:
+        flash(
+            "Complete the Strategy Meeting before reviewing sponsorship assets.",
+            "warning",
+        )
+        return redirect(url_for("strategy_meeting"))
+
+    return render_template(
+        "sponsorship_assets_review.html",
+        organization=organization,
+        initiative=initiative,
+        assets=get_sponsorship_assets(organization, initiative),
+    )
+
+
+@app.route("/workspace/assets/<int:asset_id>", methods=["POST"])
+def update_sponsorship_asset(asset_id):
+    asset = _active_sponsorship_asset(asset_id)
+    if asset is None:
+        flash("That sponsorship asset is not available.", "warning")
+        return redirect(url_for("sponsorship_asset_review"))
+
+    action = request.form.get("action", "").strip().lower()
+    if action in {"approve", "reject"}:
+        requested_status = {
+            "approve": "Approved",
+            "reject": "Rejected",
+        }[action]
+        asset.approval_status = validate_approval_status(requested_status)
+        asset.approval_updated_at = datetime.now(UTC).replace(tzinfo=None)
+    elif action == "edit":
+        name = request.form.get("name", "").strip()
+        description = request.form.get("description", "").strip()
+        sponsor_value = request.form.get("sponsor_value", "").strip()
+        capacity = request.form.get("capacity", "").strip()
+        if not name or not sponsor_value:
+            flash(
+                "Asset name and sponsor value are required.",
+                "warning",
+            )
+            return redirect(url_for("sponsorship_asset_review"))
+        asset.name = name
+        asset.description = description
+        asset.sponsor_value = sponsor_value
+        asset.value = sponsor_value
+        asset.capacity = capacity
+    else:
+        flash("Unsupported sponsorship asset action.", "warning")
+        return redirect(url_for("sponsorship_asset_review"))
+
+    db.session.commit()
+    flash("Sponsorship asset updated.", "success")
+    return redirect(url_for("sponsorship_asset_review"))
+
+
+@app.route("/workspace/assets", methods=["POST"])
+def add_sponsorship_asset():
+    organization = get_active_organization()
+    initiative = get_active_initiative()
+    if (
+        organization is None
+        or initiative is None
+        or initiative.organization_id != organization.id
+    ):
+        flash(
+            "Complete organization and sponsorship initiative setup first.",
+            "warning",
+        )
+        return redirect(url_for("setup"))
+
+    name = request.form.get("name", "").strip()
+    description = request.form.get("description", "").strip()
+    sponsor_value = request.form.get("sponsor_value", "").strip()
+    capacity = request.form.get("capacity", "").strip()
+    if not name or not sponsor_value:
+        flash("Asset name and sponsor value are required.", "warning")
+        return redirect(url_for("sponsorship_asset_review"))
+
+    db.session.add(
+        SponsorshipAsset(
+            organization_id=organization.id,
+            initiative_id=initiative.id,
+            name=name,
+            description=description,
+            sponsor_value=sponsor_value,
+            value=sponsor_value,
+            capacity=capacity,
+            approval_status="Pending",
+            source="custom",
+            is_active=True,
+        )
+    )
+    db.session.commit()
+    flash("Custom sponsorship asset added for review.", "success")
+    return redirect(url_for("sponsorship_asset_review"))
 
 
 @app.route("/workspace/generate-intelligence", methods=["POST"])
@@ -1529,7 +1836,10 @@ def generate_workspace_sponsorship_intelligence():
 
 @app.route("/prospects/<category>", methods=["GET", "POST"])
 def prospects(category):
-    decision = get_category_research_decision(category)
+    decision = get_category_research_decision(
+        category,
+        require_research_readiness=request.method == "POST",
+    )
     if not decision.allowed:
         flash(decision.reason, "warning")
         return redirect(url_for("workspace"))
@@ -1600,7 +1910,10 @@ def prospects(category):
 
 @app.route("/prospect/<category>/<int:index>", methods=["GET", "POST"])
 def prospect(category, index):
-    decision = get_category_research_decision(category)
+    decision = get_category_research_decision(
+        category,
+        require_research_readiness=False,
+    )
     if not decision.allowed:
         flash(decision.reason, "warning")
         return redirect(url_for("workspace"))
@@ -1763,7 +2076,10 @@ def validate_outreach_readiness(contact, outreach):
 
 @app.route("/approve/<category>/<int:index>", methods=["POST"])
 def approve(category, index):
-    decision = get_category_research_decision(category)
+    decision = get_category_research_decision(
+        category,
+        require_research_readiness=False,
+    )
     if not decision.allowed:
         flash(decision.reason, "warning")
         return redirect(url_for("workspace"))

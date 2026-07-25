@@ -18,7 +18,7 @@ def test_workspace_uses_database_backed_intelligence():
     assert "build_dashboard(" in workspace_source
     assert "SponsorProspect.query.filter_by(" in workspace_source
     assert "Opportunity.query.order_by(" in workspace_source
-    assert "get_sponsorship_assets(organization, initiative)" not in (
+    assert "get_sponsorship_assets(organization, initiative)" in (
         workspace_source
     )
     assert "get_research_priorities(organization, initiative)" not in (

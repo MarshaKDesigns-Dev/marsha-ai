@@ -6,6 +6,9 @@ from dataclasses import dataclass, field
 from datetime import UTC, date, datetime
 from typing import Any, Iterable
 
+from services.sponsor_research_readiness import (
+    strategy_meeting_is_complete,
+)
 
 ACTIVE_JOB_STATUSES = {"pending", "processing"}
 OUTREACH_ACTIVE_STAGES = {
@@ -242,6 +245,8 @@ def _top_priority(
     generation_job: Any,
     eligibility: Any,
     top_category: Any,
+    meeting_complete: bool,
+    approved_asset_count: int,
     prospects: list[Any],
     opportunities: list[Any],
     overdue_follow_ups: list[Any],
@@ -269,9 +274,23 @@ def _top_priority(
             ),
         )
 
-    if intelligence is not None and (
+    if job_status in ACTIVE_JOB_STATUSES:
+        return DashboardPriority(
+            title="Strategy work is underway",
+            message=(
+                "Your Strategy Worker is preparing the sponsorship plan."
+            ),
+            level="info",
+            action=DashboardAction(),
+        )
+
+    if (
+        intelligence is not None
+        and approved_asset_count > 0
+        and (
         eligibility is None
         or bool(getattr(eligibility, "research_blocked", True))
+        )
     ):
         missing = list(
             getattr(eligibility, "missing_information", []) or []
@@ -323,27 +342,31 @@ def _top_priority(
             ),
         )
 
+    if intelligence is not None and approved_asset_count == 0:
+        return DashboardPriority(
+            title="Review Sponsorship Assets.",
+            message=(
+                "Approve the benefits your organization can confidently "
+                "deliver before sponsor research begins."
+            ),
+            level="primary",
+            action=DashboardAction(
+                "Review assets",
+                "sponsorship_asset_review",
+            ),
+        )
+
     if intelligence is None:
-        if job_status in ACTIVE_JOB_STATUSES:
-            return DashboardPriority(
-                title="Strategy work is underway",
-                message=(
-                    "Your Strategy Worker is preparing the sponsorship plan."
-                ),
-                level="info",
-                action=DashboardAction(),
-            )
         return DashboardPriority(
             title="Create your sponsorship strategy",
             message=(
-                "Generate sponsorship intelligence before researching "
+                "Meet with your Strategy Worker before researching "
                 "potential sponsors."
             ),
             level="primary",
             action=DashboardAction(
-                "Start strategy work",
-                "generate_workspace_sponsorship_intelligence",
-                "POST",
+                "Begin Strategy Meeting",
+                "strategy_meeting",
             ),
         )
 
@@ -389,6 +412,7 @@ def build_dashboard(
     intelligence: Any = None,
     generation_job: Any = None,
     top_category: Any = None,
+    assets: Iterable[Any] = (),
     prospects: Iterable[Any] = (),
     opportunities: Iterable[Any] = (),
     now: datetime | None = None,
@@ -398,6 +422,7 @@ def build_dashboard(
     current = now or datetime.now().astimezone()
     today = current.date()
     prospect_list = list(prospects)
+    asset_list = list(assets)
     opportunity_list = list(opportunities)
     eligibility = (
         getattr(intelligence, "sponsor_eligibility", None)
@@ -434,6 +459,15 @@ def build_dashboard(
             or getattr(eligibility, "research_blocked", True)
         )
     )
+    meeting_complete = strategy_meeting_is_complete(
+        initiative,
+        intelligence,
+    )
+    approved_asset_count = sum(
+        getattr(asset, "is_active", True)
+        and getattr(asset, "approval_status", "Pending") == "Approved"
+        for asset in asset_list
+    )
 
     progress = (
         DashboardProgressStep("Organization Setup", "Complete"),
@@ -441,7 +475,7 @@ def build_dashboard(
             "Strategy Meeting",
             (
                 "Complete"
-                if intelligence is not None
+                if meeting_complete
                 else "Current"
                 if job_status in ACTIVE_JOB_STATUSES
                 else "Not started"
@@ -453,7 +487,10 @@ def build_dashboard(
                 "Complete"
                 if prospect_list
                 else "Action required"
-                if research_blocked
+                if research_blocked or (
+                    intelligence is not None
+                    and approved_asset_count == 0
+                )
                 else "Current"
                 if intelligence is not None
                 else "Not started"
@@ -533,15 +570,26 @@ def build_dashboard(
                 "sponsorship strategy."
             ),
             DashboardAction(
-                "Start strategy work",
-                "generate_workspace_sponsorship_intelligence",
-                "POST",
+                "Begin Strategy Meeting",
+                "strategy_meeting",
             ),
             "Waiting on",
             "Your approval to begin",
         )
 
-    if research_blocked:
+    if intelligence is not None and approved_asset_count == 0:
+        research_worker = DashboardWorker(
+            "Research Worker",
+            "Waiting for you",
+            "I'm waiting for approved sponsorship assets.",
+            DashboardAction(
+                "Review assets",
+                "sponsorship_asset_review",
+            ),
+            "Waiting on",
+            "Your sponsorship asset approval",
+        )
+    elif research_blocked:
         research_worker = DashboardWorker(
             "Research Worker",
             "Blocked",
@@ -682,6 +730,8 @@ def build_dashboard(
             generation_job=generation_job,
             eligibility=eligibility,
             top_category=top_category,
+            meeting_complete=meeting_complete,
+            approved_asset_count=approved_asset_count,
             prospects=prospect_list,
             opportunities=opportunity_list,
             overdue_follow_ups=overdue_follow_ups,

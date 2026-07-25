@@ -642,6 +642,70 @@ def test_asset_json_fields_are_mapped(
         "financial-services",
         "healthcare",
     ]
+    assert asset.approval_status == "Pending"
+    assert asset.source == "generated"
+
+
+def test_regeneration_preserves_matching_generated_asset_approval(
+    organization,
+    initiative,
+    intelligence_result,
+):
+    approved = SponsorshipAsset(
+        organization_id=organization.id,
+        initiative_id=initiative.id,
+        name="Community Arts Activity Partner",
+        approval_status="Approved",
+        source="generated",
+    )
+    session = MagicMock()
+    session.scalar.return_value = None
+    session.scalars.return_value.all.return_value = [approved]
+
+    persist_sponsorship_intelligence(
+        organization,
+        initiative,
+        intelligence_result,
+        session=session,
+    )
+
+    assert approved.approval_status == "Approved"
+    assert approved.sponsor_value
+    assert not any(
+        (
+            isinstance(item.args[0], SponsorshipAsset)
+            and item.args[0].name == approved.name
+        )
+        for item in session.add.call_args_list
+    )
+
+
+def test_regeneration_retains_approved_asset_not_recommended_again(
+    organization,
+    initiative,
+    intelligence_result,
+):
+    approved = SponsorshipAsset(
+        organization_id=organization.id,
+        initiative_id=initiative.id,
+        name="Previously Approved Asset",
+        approval_status="Approved",
+        source="generated",
+    )
+    session = MagicMock()
+    session.scalar.return_value = None
+    session.scalars.return_value.all.return_value = [approved]
+
+    persist_sponsorship_intelligence(
+        organization,
+        initiative,
+        intelligence_result,
+        session=session,
+    )
+
+    assert approved.approval_status == "Approved"
+    delete_statement = session.execute.call_args_list[1].args[0]
+    assert "approval_status" in str(delete_statement)
 
 
 def test_research_priority_json_fields_are_mapped(

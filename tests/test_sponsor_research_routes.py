@@ -33,7 +33,7 @@ def configure_route(monkeypatch):
     monkeypatch.setattr(
         app_module,
         "get_category_research_decision",
-        lambda slug: CategoryResearchDecision(allowed=True),
+        lambda slug, **kwargs: CategoryResearchDecision(allowed=True),
     )
     monkeypatch.setattr(
         app_module,

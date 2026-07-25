@@ -1,0 +1,118 @@
+{% extends "base.html" %}
+
+{% block title %}Review Sponsorship Assets · Marsha AI{% endblock %}
+
+{% block content %}
+<header class="mb-4">
+  <div class="eyebrow">STRATEGY WORKER</div>
+  <h1>Review Sponsorship Assets</h1>
+  <p class="lead mb-0">
+    Approve the benefits you can confidently deliver. Sponsor research begins
+    only after at least one asset is approved.
+  </p>
+</header>
+
+{% if assets %}
+<div class="row g-3 mb-4">
+  {% for asset in assets %}
+  <div class="col-lg-6">
+    <article class="card p-4 h-100">
+      <div class="d-flex justify-content-between gap-3">
+        <h2 class="h5">{{ asset.name }}</h2>
+        <span class="badge text-bg-{{
+          'success' if asset.approval_status == 'Approved'
+          else 'danger' if asset.approval_status == 'Rejected'
+          else 'light'
+        }} border">{{ asset.approval_status }}</span>
+      </div>
+      <p>{{ asset.description or asset.value }}</p>
+      <p class="small mb-3">
+        <strong>Sponsor value:</strong>
+        {{ asset.sponsor_value or asset.value or 'Not provided' }}
+        {% if asset.capacity %}
+        <br><strong>Capacity:</strong> {{ asset.capacity }}
+        {% endif %}
+      </p>
+
+      <div class="d-flex flex-wrap gap-2 mb-3">
+        <form method="post"
+          action="{{ url_for('update_sponsorship_asset', asset_id=asset.id) }}">
+          <input type="hidden" name="action" value="approve">
+          <button class="btn btn-sm btn-success" type="submit">Approve</button>
+        </form>
+        <form method="post"
+          action="{{ url_for('update_sponsorship_asset', asset_id=asset.id) }}">
+          <input type="hidden" name="action" value="reject">
+          <button class="btn btn-sm btn-outline-danger" type="submit">
+            Reject
+          </button>
+        </form>
+      </div>
+
+      <details>
+        <summary class="fw-bold">Edit asset</summary>
+        <form method="post" class="mt-3"
+          action="{{ url_for('update_sponsorship_asset', asset_id=asset.id) }}">
+          <input type="hidden" name="action" value="edit">
+          <label class="form-label" for="name-{{ asset.id }}">Name</label>
+          <input class="form-control mb-2" id="name-{{ asset.id }}"
+            name="name" value="{{ asset.name }}" required>
+          <label class="form-label" for="description-{{ asset.id }}">
+            Description
+          </label>
+          <textarea class="form-control mb-2" id="description-{{ asset.id }}"
+            name="description" rows="3">{{ asset.description or '' }}</textarea>
+          <label class="form-label" for="value-{{ asset.id }}">
+            Sponsor value
+          </label>
+          <textarea class="form-control mb-2" id="value-{{ asset.id }}"
+            name="sponsor_value" rows="3"
+            required>{{ asset.sponsor_value or asset.value or '' }}</textarea>
+          <label class="form-label" for="capacity-{{ asset.id }}">
+            Capacity
+          </label>
+          <input class="form-control mb-3" id="capacity-{{ asset.id }}"
+            name="capacity" value="{{ asset.capacity or '' }}">
+          <button class="btn btn-sm btn-dark" type="submit">Save Changes</button>
+        </form>
+      </details>
+    </article>
+  </div>
+  {% endfor %}
+</div>
+{% else %}
+<div class="alert alert-info">
+  Your Strategy Worker has not produced sponsorship assets yet.
+</div>
+{% endif %}
+
+<section class="card p-4" aria-labelledby="custom-asset-heading">
+  <h2 class="h4" id="custom-asset-heading">Add a Custom Asset</h2>
+  <p class="text-muted">
+    Add a benefit your organization can reliably provide to a sponsor.
+  </p>
+  <form method="post" action="{{ url_for('add_sponsorship_asset') }}">
+    <div class="row g-3">
+      <div class="col-md-6">
+        <label class="form-label" for="custom-name">Name</label>
+        <input class="form-control" id="custom-name" name="name" required>
+      </div>
+      <div class="col-md-6">
+        <label class="form-label" for="custom-capacity">Capacity</label>
+        <input class="form-control" id="custom-capacity" name="capacity">
+      </div>
+      <div class="col-12">
+        <label class="form-label" for="custom-description">Description</label>
+        <textarea class="form-control" id="custom-description"
+          name="description" rows="3"></textarea>
+      </div>
+      <div class="col-12">
+        <label class="form-label" for="custom-value">Sponsor Value</label>
+        <textarea class="form-control" id="custom-value"
+          name="sponsor_value" rows="3" required></textarea>
+      </div>
+    </div>
+    <button class="btn btn-dark mt-3" type="submit">Add Asset</button>
+  </form>
+</section>
+{% endblock %}

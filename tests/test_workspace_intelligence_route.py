@@ -310,6 +310,11 @@ def test_workspace_builds_dashboard_from_existing_records(monkeypatch):
     )
     monkeypatch.setattr(
         app_module,
+        "get_sponsorship_assets",
+        lambda org, init: [],
+    )
+    monkeypatch.setattr(
+        app_module,
         "get_research_priorities",
         lambda org, init: (_ for _ in ()).throw(
             AssertionError("workspace must not load research priorities")
@@ -363,6 +368,7 @@ def test_workspace_builds_dashboard_from_existing_records(monkeypatch):
     assert build_arguments["intelligence"] is intelligence
     assert build_arguments["generation_job"] is generation_job
     assert build_arguments["top_category"] is categories[0]
+    assert build_arguments["assets"] == []
     assert build_arguments["prospects"] is prospects
     assert build_arguments["opportunities"] is opportunities
 
@@ -418,7 +424,7 @@ def test_direct_research_routes_enforce_server_side_gate(
     monkeypatch.setattr(
         app_module,
         "get_category_research_decision",
-        lambda category: CategoryResearchDecision(
+        lambda category, **kwargs: CategoryResearchDecision(
             allowed=False,
             reason="Research is blocked by deterministic eligibility.",
             reason_code="blocked_for_test",
@@ -438,7 +444,7 @@ def test_allowed_category_research_does_not_use_placeholder_prospects(
     monkeypatch.setattr(
         app_module,
         "get_category_research_decision",
-        lambda category: CategoryResearchDecision(allowed=True),
+        lambda category, **kwargs: CategoryResearchDecision(allowed=True),
     )
     organization = SimpleNamespace(id=1)
     initiative = SimpleNamespace(id=2, organization_id=1)
