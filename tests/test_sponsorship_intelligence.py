@@ -7,6 +7,7 @@ import pytest
 from pydantic import ValidationError
 
 from services.organization_analysis import OrganizationAnalysis
+from services.research_priorities import ResearchPrioritySet
 from services.sponsor_eligibility import SponsorEligibilityAnalysis
 from services.sponsor_categories import SponsorCategorySet
 from services.sponsorship_assets import SponsorshipAssetSet
@@ -85,6 +86,13 @@ def eligibility():
     return SponsorEligibilityAnalysis.model_construct()
 
 
+@pytest.fixture
+def priorities():
+    """Return a constructed ResearchPrioritySet result."""
+
+    return ResearchPrioritySet.model_construct()
+
+
 def test_orchestrator_runs_workers_in_dependency_order(
     organization,
     initiative,
@@ -93,6 +101,7 @@ def test_orchestrator_runs_workers_in_dependency_order(
     categories,
     assets,
     eligibility,
+    priorities,
 ):
     """Workers must execute in the required dependency order."""
 
@@ -118,6 +127,10 @@ def test_orchestrator_runs_workers_in_dependency_order(
         execution_order.append("sponsor_eligibility")
         return eligibility
 
+    def priority_worker(*args, **kwargs):
+        execution_order.append("research_priorities")
+        return priorities
+
     result = generate_sponsorship_intelligence(
         organization,
         initiative,
@@ -126,6 +139,7 @@ def test_orchestrator_runs_workers_in_dependency_order(
         sponsor_category_worker=category_worker,
         sponsorship_asset_worker=asset_worker,
         sponsor_eligibility_engine=eligibility_engine,
+        research_priority_worker=priority_worker,
     )
 
     assert execution_order == [
@@ -134,11 +148,12 @@ def test_orchestrator_runs_workers_in_dependency_order(
         "sponsor_categories",
         "sponsorship_assets",
         "sponsor_eligibility",
+        "research_priorities",
     ]
 
     assert isinstance(result, SponsorshipIntelligenceResult)
     assert result.sponsor_eligibility is eligibility
-    assert result.research_priorities is None
+    assert result.research_priorities is priorities
 
 
 def test_generation_lifecycle_events_are_emitted_in_order(
@@ -149,6 +164,7 @@ def test_generation_lifecycle_events_are_emitted_in_order(
     categories,
     assets,
     eligibility,
+    priorities,
 ):
     events = []
 
@@ -160,6 +176,7 @@ def test_generation_lifecycle_events_are_emitted_in_order(
         sponsor_category_worker=Mock(return_value=categories),
         sponsorship_asset_worker=Mock(return_value=assets),
         sponsor_eligibility_engine=Mock(return_value=eligibility),
+        research_priority_worker=Mock(return_value=priorities),
         lifecycle_logger=events.append,
     )
 
@@ -174,6 +191,8 @@ def test_generation_lifecycle_events_are_emitted_in_order(
         "sponsorship_assets_completed",
         "sponsor_eligibility_started",
         "sponsor_eligibility_completed",
+        "research_priorities_started",
+        "research_priorities_completed",
     ]
 
 
@@ -185,6 +204,7 @@ def test_orchestrator_returns_all_worker_results(
     categories,
     assets,
     eligibility,
+    priorities,
 ):
     """The aggregate result must contain every worker result."""
 
@@ -196,6 +216,7 @@ def test_orchestrator_returns_all_worker_results(
         sponsor_category_worker=Mock(return_value=categories),
         sponsorship_asset_worker=Mock(return_value=assets),
         sponsor_eligibility_engine=Mock(return_value=eligibility),
+        research_priority_worker=Mock(return_value=priorities),
     )
 
     assert result.organization_analysis is analysis
@@ -203,7 +224,7 @@ def test_orchestrator_returns_all_worker_results(
     assert result.sponsor_categories is categories
     assert result.sponsorship_assets is assets
     assert result.sponsor_eligibility is eligibility
-    assert result.research_priorities is None
+    assert result.research_priorities is priorities
 
 
 def test_orchestrator_passes_dependencies_to_workers(
@@ -214,6 +235,7 @@ def test_orchestrator_passes_dependencies_to_workers(
     categories,
     assets,
     eligibility,
+    priorities,
 ):
     """Each worker must receive all required upstream results."""
 
@@ -225,6 +247,7 @@ def test_orchestrator_passes_dependencies_to_workers(
     category_worker = Mock(return_value=categories)
     asset_worker = Mock(return_value=assets)
     eligibility_engine = Mock(return_value=eligibility)
+    priority_worker = Mock(return_value=priorities)
 
     generate_sponsorship_intelligence(
         organization,
@@ -236,6 +259,7 @@ def test_orchestrator_passes_dependencies_to_workers(
         sponsor_category_worker=category_worker,
         sponsorship_asset_worker=asset_worker,
         sponsor_eligibility_engine=eligibility_engine,
+        research_priority_worker=priority_worker,
         clock=lambda: 100.0,
     )
 
@@ -288,6 +312,19 @@ def test_orchestrator_passes_dependencies_to_workers(
         strategy,
         categories,
         assets,
+    )
+
+    priority_worker.assert_called_once_with(
+        organization,
+        initiative,
+        analysis,
+        strategy,
+        categories,
+        assets,
+        client=client,
+        model=model,
+        request_timeout=90.0,
+        workflow_started_at=100.0,
     )
 
 
@@ -343,6 +380,7 @@ def test_workflow_budget_exhaustion_stops_before_next_worker(
         "categories",
         "assets",
         "eligibility",
+        "priorities",
     ],
 )
 def test_worker_failure_is_wrapped(
@@ -354,6 +392,7 @@ def test_worker_failure_is_wrapped(
     categories,
     assets,
     eligibility,
+    priorities,
 ):
     """Any worker failure must become an orchestrator error."""
 
@@ -363,6 +402,7 @@ def test_worker_failure_is_wrapped(
         "categories": Mock(return_value=categories),
         "assets": Mock(return_value=assets),
         "eligibility": Mock(return_value=eligibility),
+        "priorities": Mock(return_value=priorities),
     }
 
     workers[failing_worker].side_effect = RuntimeError(
@@ -381,6 +421,7 @@ def test_worker_failure_is_wrapped(
             sponsor_category_worker=workers["categories"],
             sponsorship_asset_worker=workers["assets"],
             sponsor_eligibility_engine=workers["eligibility"],
+            research_priority_worker=workers["priorities"],
         )
 
 
@@ -423,6 +464,8 @@ def test_invalid_worker_result_is_rejected(
     analysis,
     strategy,
     categories,
+    eligibility,
+    priorities,
 ):
     """The aggregate model must reject an invalid worker result."""
 
@@ -445,6 +488,8 @@ def test_invalid_worker_result_is_rejected(
             sponsorship_asset_worker=Mock(
                 return_value={"invalid": "asset result"}
             ),
+            sponsor_eligibility_engine=Mock(return_value=eligibility),
+            research_priority_worker=Mock(return_value=priorities),
         )
 
 
@@ -475,6 +520,7 @@ def test_orchestrator_does_not_require_flask_context(
     categories,
     assets,
     eligibility,
+    priorities,
 ):
     """The service must operate without a Flask application context."""
 
@@ -486,8 +532,9 @@ def test_orchestrator_does_not_require_flask_context(
         sponsor_category_worker=Mock(return_value=categories),
         sponsorship_asset_worker=Mock(return_value=assets),
         sponsor_eligibility_engine=Mock(return_value=eligibility),
+        research_priority_worker=Mock(return_value=priorities),
     )
 
     assert isinstance(result, SponsorshipIntelligenceResult)
     assert result.sponsor_eligibility is eligibility
-    assert result.research_priorities is None
+    assert result.research_priorities is priorities
