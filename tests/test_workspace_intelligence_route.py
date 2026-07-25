@@ -3,11 +3,8 @@ from unittest.mock import MagicMock
 
 import app as app_module
 import pytest
-from services.sponsor_eligibility import EligibilityFacts
-from services.sponsor_eligibility_engine import SponsorEligibilityEngine
 from services.sponsor_eligibility_gate import (
     CategoryResearchDecision,
-    evaluate_category_research,
 )
 
 
@@ -177,11 +174,15 @@ def test_generation_started_message_renders_after_redirect(monkeypatch):
         id=1,
         name="Community Arts Center",
         location="Durham, NC",
+        sender_name="Jordan Lee",
+        organization_type="Arts organization",
     )
     initiative = SimpleNamespace(
         id=10,
         organization_id=1,
         name="Summer Arts Festival",
+        fundraising_target="Not set",
+        deadline=None,
     )
     started_message = "Sponsorship intelligence generation started."
 
@@ -229,10 +230,26 @@ def test_generation_started_message_renders_after_redirect(monkeypatch):
         "get_workspace_intelligence_job",
         lambda org, init: SimpleNamespace(status="pending", message=None),
     )
+    prospect_query = MagicMock()
+    prospect_query.filter_by.return_value.order_by.return_value.all.return_value = []
+    monkeypatch.setattr(
+        app_module,
+        "SponsorProspect",
+        SimpleNamespace(
+            query=prospect_query,
+            updated_at=SimpleNamespace(desc=lambda: "updated"),
+            id=SimpleNamespace(desc=lambda: "id"),
+        ),
+    )
+    opportunity_query = MagicMock()
+    opportunity_query.order_by.return_value.all.return_value = []
     monkeypatch.setattr(
         app_module,
         "Opportunity",
-        SimpleNamespace(query=SimpleNamespace(all=lambda: [])),
+        SimpleNamespace(
+            query=opportunity_query,
+            updated_at=SimpleNamespace(desc=lambda: "updated"),
+        ),
     )
 
     client = app_module.app.test_client()
@@ -246,55 +263,20 @@ def test_generation_started_message_renders_after_redirect(monkeypatch):
     assert response.request.path == "/workspace"
     assert started_message in html
     assert 'class="alert alert-success"' in html
-    assert "Sponsorship intelligence generation is queued." in html
+    assert "I&#39;m building your sponsorship strategy now." in html
 
 
-@pytest.mark.parametrize(
-    ("status", "message", "expected"),
-    [
-        (
-            "processing",
-            None,
-            "Sponsorship intelligence is being generated.",
-        ),
-        (
-            "failed",
-            "Safe generation failure.",
-            "Safe generation failure.",
-        ),
-    ],
-)
-def test_workspace_renders_generation_job_status(status, message, expected):
-    with app_module.app.test_request_context("/workspace"):
-        html = app_module.render_template(
-            "workspace.html",
-            org={},
-            organization=SimpleNamespace(
-                name="Community Arts Center",
-                location="Durham, NC",
-            ),
-            initiative=SimpleNamespace(name="Summer Arts Festival"),
-            data={},
-            intelligence=None,
-            generation_job=SimpleNamespace(
-                status=status,
-                message=message,
-            ),
-            categories=[],
-            assets=[],
-            pipeline=[],
-        )
-
-    assert expected in html
-
-
-def test_workspace_loads_all_persisted_intelligence(monkeypatch):
+def test_workspace_builds_dashboard_from_existing_records(monkeypatch):
     organization = SimpleNamespace(id=1)
     initiative = SimpleNamespace(id=10, organization_id=1)
     intelligence = SimpleNamespace(id=99)
+    generation_job = SimpleNamespace(status="processing")
     categories = [SimpleNamespace(slug="community")]
-    assets = [SimpleNamespace(name="Community Partnership")]
+    prospects = [SimpleNamespace(id=20)]
+    opportunities = [SimpleNamespace(id=30)]
+    dashboard = SimpleNamespace(greeting="Good morning, there")
     rendered = {}
+    build_arguments = {}
 
     monkeypatch.setattr(
         app_module,
@@ -305,11 +287,6 @@ def test_workspace_loads_all_persisted_intelligence(monkeypatch):
         app_module,
         "get_active_initiative",
         lambda: initiative,
-    )
-    monkeypatch.setattr(
-        app_module,
-        "get_org_profile",
-        lambda: {"name": "Example Organization"},
     )
     monkeypatch.setattr(
         app_module,
@@ -324,10 +301,7 @@ def test_workspace_loads_all_persisted_intelligence(monkeypatch):
     monkeypatch.setattr(
         app_module,
         "get_workspace_intelligence_job",
-        lambda org, init: SimpleNamespace(
-            status="processing",
-            message=None,
-        ),
+        lambda org, init: generation_job,
     )
     monkeypatch.setattr(
         app_module,
@@ -336,23 +310,38 @@ def test_workspace_loads_all_persisted_intelligence(monkeypatch):
     )
     monkeypatch.setattr(
         app_module,
-        "get_sponsorship_assets",
-        lambda org, init: assets,
-    )
-    monkeypatch.setattr(
-        app_module,
         "get_research_priorities",
         lambda org, init: (_ for _ in ()).throw(
             AssertionError("workspace must not load research priorities")
         ),
     )
+    prospect_query = MagicMock()
+    prospect_query.filter_by.return_value.order_by.return_value.all.return_value = prospects
+    monkeypatch.setattr(
+        app_module,
+        "SponsorProspect",
+        SimpleNamespace(
+            query=prospect_query,
+            updated_at=SimpleNamespace(desc=lambda: "updated"),
+            id=SimpleNamespace(desc=lambda: "id"),
+        ),
+    )
+    opportunity_query = MagicMock()
+    opportunity_query.order_by.return_value.all.return_value = opportunities
     monkeypatch.setattr(
         app_module,
         "Opportunity",
         SimpleNamespace(
-            query=SimpleNamespace(all=lambda: []),
+            query=opportunity_query,
+            updated_at=SimpleNamespace(desc=lambda: "updated"),
         ),
     )
+
+    def build_dashboard(**kwargs):
+        build_arguments.update(kwargs)
+        return dashboard
+
+    monkeypatch.setattr(app_module, "build_dashboard", build_dashboard)
 
     def render(template_name, **context):
         rendered.update(context)
@@ -364,107 +353,53 @@ def test_workspace_loads_all_persisted_intelligence(monkeypatch):
         response = app_module.workspace()
 
     assert response == "workspace.html"
-    assert rendered["intelligence"] is intelligence
-    assert rendered["categories"] is categories
-    assert rendered["assets"] is assets
-    assert "research_priorities" not in rendered
-    assert rendered["generation_job"].status == "processing"
-    assert rendered["intelligence"] is intelligence
+    assert rendered == {
+        "organization": organization,
+        "initiative": initiative,
+        "dashboard": dashboard,
+    }
+    assert build_arguments["organization"] is organization
+    assert build_arguments["initiative"] is initiative
+    assert build_arguments["intelligence"] is intelligence
+    assert build_arguments["generation_job"] is generation_job
+    assert build_arguments["top_category"] is categories[0]
+    assert build_arguments["prospects"] is prospects
+    assert build_arguments["opportunities"] is opportunities
 
 
-def test_workspace_template_exposes_generated_intelligence():
+def test_workspace_template_is_dashboard_without_long_form_reports():
     template = open(
         "templates/workspace.html",
         encoding="utf-8",
     ).read()
 
-    assert "Generate Sponsorship Intelligence" in template
-    assert "Regenerate Intelligence" in template
-    assert "ORGANIZATION ANALYSIS" in template
-    assert "SPONSORSHIP STRATEGY" in template
-    assert "RECOMMENDED SPONSOR CATEGORIES" in template
-    assert "CURRENT SPONSORSHIP ASSETS" in template
-    assert "Where would you like to begin?" in template
-    assert "Research This Category" in template
-    assert "category=category.slug" in template
-    assert "RESEARCH PRIORITIES" not in template
-    assert "Sponsorship intelligence generation is queued." in template
-    assert "Sponsorship intelligence is being generated." in template
+    assert "MARSHA AI OFFICE" in template
+    assert "TOP PRIORITY" in template
+    assert "Your Team’s Status" in template
+    assert "Strategy Worker" not in template
+    assert "dashboard.workers" in template
+    assert "WORKFLOW" in template
+    assert "ACTIVE INITIATIVE" in template
+    assert "RECENT ACTIVITY" in template
+    assert "ORGANIZATION ANALYSIS" not in template
+    assert "SPONSORSHIP STRATEGY" not in template
+    assert "RECOMMENDED SPONSOR CATEGORIES" not in template
+    assert "CURRENT SPONSORSHIP ASSETS" not in template
+    assert "organization_analysis" not in template
+    assert "sponsorship_strategy" not in template
+    assert "categories" not in template
+    assert "assets" not in template
 
-
-def test_workspace_renders_persisted_eligibility_and_allowed_category():
-    eligibility = SponsorEligibilityEngine().evaluate(
-        EligibilityFacts(
-            mission="Support professional education.",
-            location="Charlotte, NC",
-            initiative_name="Leadership Conference",
-            audience="Adults 21 and older",
-        )
-    )
-    category = SimpleNamespace(
-        slug="technology",
-        category="Technology",
-        score=90,
-        fit="Strong alignment",
-        ideal_sponsor_profile="Business technology providers",
-        research_direction="Research regional providers",
-    )
-
-    with app_module.app.test_request_context("/workspace"):
-        html = app_module.render_template(
-            "workspace.html",
-            org={},
-            organization=SimpleNamespace(
-                name="Leadership Association",
-                location="Charlotte, NC",
-            ),
-            initiative=SimpleNamespace(name="Leadership Conference"),
-            data={},
-            intelligence=SimpleNamespace(
-                organization_analysis={},
-                sponsorship_strategy={},
-                sponsor_eligibility=eligibility,
-            ),
-            generation_job=None,
-            categories=[category],
-            category_research_decisions={
-                category.slug: evaluate_category_research(
-                    eligibility,
-                    category,
-                )
-            },
-            assets=[],
-            pipeline=[],
-        )
-
-    assert "SPONSOR ELIGIBILITY" in html
-    assert "Sponsor research allowed:" in html
-    assert "Yes" in html
-    assert "sponsor-eligibility-v1" in html
-    assert 'action="/prospects/technology"' in html
-
-
-def test_workspace_renders_legacy_eligibility_warning():
-    with app_module.app.test_request_context("/workspace"):
-        html = app_module.render_template(
-            "workspace.html",
-            org={},
-            organization=SimpleNamespace(name="Example", location=""),
-            initiative=SimpleNamespace(name="Example Initiative"),
-            data={},
-            intelligence=SimpleNamespace(
-                organization_analysis={},
-                sponsorship_strategy={},
-                sponsor_eligibility=None,
-            ),
-            generation_job=None,
-            categories=[],
-            category_research_decisions={},
-            assets=[],
-            pipeline=[],
-        )
-
-    assert "Sponsor eligibility analysis has not been generated." in html
+    sections = [
+        "TOP PRIORITY",
+        "Your Team’s Status",
+        "WORKFLOW",
+        "ACTIVE INITIATIVE",
+        "RECENT ACTIVITY",
+        "ORGANIZATION SETUP",
+    ]
+    positions = [template.index(section) for section in sections]
+    assert positions == sorted(positions)
 
 
 @pytest.mark.parametrize(

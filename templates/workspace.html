@@ -1,479 +1,211 @@
-﻿{% extends "base.html" %}
+{% extends "base.html" %}
+
+{% macro dashboard_action(action, style='btn-dark') %}
+  {% if action and action.endpoint %}
+    {% if action.method == 'POST' %}
+    <form
+      method="post"
+      action="{{ url_for(action.endpoint, **action.route_params) }}"
+      class="d-inline"
+    >
+      {% for name, value in action.form_data.items() %}
+      <input type="hidden" name="{{ name }}" value="{{ value }}">
+      {% endfor %}
+      <button class="btn {{ style }}" type="submit">{{ action.label }}</button>
+    </form>
+    {% else %}
+    <a
+      class="btn {{ style }}"
+      href="{{ url_for(action.endpoint, **action.route_params) }}"
+    >
+      {{ action.label }}
+    </a>
+    {% endif %}
+  {% endif %}
+{% endmacro %}
 
 {% block title %}
-{{ organization.name }} · Sponsorship Workspace
+Dashboard · Marsha AI Sponsorship Coordinator
 {% endblock %}
 
 {% block content %}
 
-{% if generation_job and generation_job.status == 'pending' %}
-<div class="alert alert-info" role="alert">
-  Sponsorship intelligence generation is queued.
-</div>
-{% elif generation_job and generation_job.status == 'processing' %}
-<div class="alert alert-info" role="alert">
-  Sponsorship intelligence is being generated.
-</div>
-{% elif generation_job and generation_job.status == 'failed' %}
-<div class="alert alert-warning" role="alert">
-  {{ generation_job.message }}
-</div>
-{% endif %}
+<header class="mb-4">
+  <div class="eyebrow">MARSHA AI OFFICE</div>
+  <h1 class="display-6 mb-2">{{ dashboard.greeting }}</h1>
+  <p class="lead mb-0">
+    Here is what your sponsorship team is working on today.
+  </p>
+</header>
 
-<div class="d-flex flex-wrap justify-content-between align-items-start gap-3 mb-4">
-  <div>
-    <div class="eyebrow">ACTIVE SPONSORSHIP INITIATIVE</div>
-
-    <h1>{{ initiative.name }}</h1>
-
-    <p class="mb-1">
-      <strong>{{ organization.name }}</strong>
-    </p>
-
-    {% if organization.location %}
-    <p class="mb-0">
-      {{ organization.location }}
-    </p>
-    {% endif %}
+<section
+  class="card p-4 mb-4 border-{{ dashboard.top_priority.level }}"
+  aria-labelledby="priority-heading"
+>
+  <div class="d-flex flex-wrap justify-content-between align-items-center gap-3">
+    <div>
+      <div class="eyebrow">TOP PRIORITY</div>
+      <h2 class="h4 mb-2" id="priority-heading">
+        {{ dashboard.top_priority.title }}
+      </h2>
+      <p class="mb-0">{{ dashboard.top_priority.message }}</p>
+      {% if dashboard.top_priority.supporting_line %}
+      <p class="small text-muted mt-2 mb-0">
+        {{ dashboard.top_priority.supporting_line }}
+      </p>
+      {% endif %}
+    </div>
+    {{ dashboard_action(dashboard.top_priority.action) }}
   </div>
+</section>
 
-  <div class="d-flex flex-wrap gap-2">
-    <a class="btn btn-outline-dark" href="{{ url_for('setup') }}">
-      Edit Setup
-    </a>
+<section class="mb-4" aria-labelledby="team-heading">
+  <div class="eyebrow">AI OFFICE</div>
+  <h2 class="h3 mb-3" id="team-heading">Your Team’s Status</h2>
 
-    <a class="btn btn-dark" href="{{ url_for('show_pipeline') }}">
+  <div class="row g-3">
+    {% for worker in dashboard.workers %}
+    <div class="col-md-6">
+      <article class="card p-4 h-100">
+        <div class="d-flex justify-content-between align-items-start gap-2">
+          <h3 class="h5 mb-1">{{ worker.name }}</h3>
+          <span class="badge text-bg-light border">{{ worker.status }}</span>
+        </div>
+        <p class="text-muted mb-2">{{ worker.message }}</p>
+        {% if worker.detail %}
+        <p class="small mb-3">
+          <span class="text-muted">{{ worker.detail_label }}:</span>
+          <strong>{{ worker.detail }}</strong>
+        </p>
+        {% endif %}
+        <div class="mt-auto">
+          {{ dashboard_action(worker.action, 'btn-sm btn-outline-dark') }}
+        </div>
+      </article>
+    </div>
+    {% endfor %}
+  </div>
+</section>
+
+<section class="card p-4 mb-4" aria-labelledby="progress-heading">
+  <div class="eyebrow">WORKFLOW</div>
+  <h2 class="h4 mb-3" id="progress-heading">Sponsorship progress</h2>
+  <div class="row row-cols-2 row-cols-md-3 row-cols-xl-6 g-2">
+    {% for step in dashboard.progress %}
+    {% set badge_class = {
+      'Complete': 'text-bg-success',
+      'Current': 'text-bg-primary',
+      'Waiting': 'text-bg-light border',
+      'Action required': 'text-bg-warning',
+      'Not started': 'text-bg-light border'
+    }.get(step.status, 'text-bg-light border') %}
+    <div class="col">
+      <div class="border rounded p-3 h-100">
+        <span class="small text-muted d-block mb-2">{{ step.label }}</span>
+        <span class="badge {{ badge_class }}">{{ step.status }}</span>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+</section>
+
+<section class="card p-4 mb-4" aria-labelledby="initiative-heading">
+  <div class="eyebrow">ACTIVE INITIATIVE</div>
+  <h2 class="h4 mb-1" id="initiative-heading">{{ initiative.name }}</h2>
+  <p class="small text-muted mb-3">{{ organization.name }}</p>
+
+  <div class="row g-2">
+    <div class="col-6 col-lg">
+      <div class="metric h-100">
+        <span>Fundraising Goal</span>
+        <strong>{{ initiative.fundraising_target or 'Not set' }}</strong>
+      </div>
+    </div>
+    <div class="col-6 col-lg">
+      <div class="metric h-100">
+        <span>Deadline</span>
+        <strong>{{ initiative.deadline or 'Not set' }}</strong>
+      </div>
+    </div>
+    <div class="col-6 col-lg">
+      <div class="metric h-100">
+        <span>Days Remaining</span>
+        <strong>
+          {% if dashboard.days_remaining is none %}
+          Not set
+          {% elif dashboard.days_remaining < 0 %}
+          Past due
+          {% else %}
+          {{ dashboard.days_remaining }}
+          {% endif %}
+        </strong>
+      </div>
+    </div>
+    <div class="col-6 col-lg">
+      <div class="metric h-100">
+        <span>Active Pipeline</span>
+        <strong>{{ dashboard.pipeline_count }}</strong>
+      </div>
+    </div>
+    <div class="col-6 col-lg">
+      <div class="metric h-100">
+        <span>Sponsors Secured</span>
+        <strong>{{ dashboard.sponsors_secured }}</strong>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="card p-4 mb-4" aria-labelledby="activity-heading">
+  <div class="d-flex flex-wrap justify-content-between align-items-center gap-2">
+    <div>
+      <div class="eyebrow">RECENT ACTIVITY</div>
+      <h2 class="h4 mb-0" id="activity-heading">What your team completed</h2>
+    </div>
+    <a class="btn btn-sm btn-outline-dark" href="{{ url_for('show_pipeline') }}">
       Open Pipeline
     </a>
   </div>
-</div>
 
-<div class="alert action-card mb-4">
-  {% if intelligence %}
-  <div class="d-flex flex-wrap justify-content-between align-items-center gap-3">
-    <div>
-      <strong>Sponsorship intelligence is ready.</strong>
-      Review the recommendations below, then choose where you would like
-      to begin.
-    </div>
-
-    <form
-      method="post"
-      action="{{ url_for('generate_workspace_sponsorship_intelligence') }}"
-    >
-      <input type="hidden" name="regenerate" value="true">
-      <button class="btn btn-outline-dark" type="submit">
-        Regenerate Intelligence
-      </button>
-    </form>
-  </div>
-  {% else %}
-  <div class="d-flex flex-wrap justify-content-between align-items-center gap-3">
-    <div>
-      <strong>Generate organization-specific sponsorship intelligence.</strong>
-      The Coordinator will analyze this initiative and save its strategy,
-      recommended sponsor categories, and sponsorship assets.
-    </div>
-
-    <form
-      method="post"
-      action="{{ url_for('generate_workspace_sponsorship_intelligence') }}"
-    >
-      <button class="btn btn-dark" type="submit">
-        Generate Sponsorship Intelligence
-      </button>
-    </form>
-  </div>
-  {% endif %}
-</div>
-
-<div class="row g-3 mb-4">
-  <div class="col-md-4">
-    <div class="metric h-100">
-      <span>Fundraising Target</span>
-      <strong>{{ data.target or 'Not set' }}</strong>
-    </div>
-  </div>
-
-  <div class="col-md-4">
-    <div class="metric h-100">
-      <span>Deadline</span>
-      <strong>{{ data.deadline or 'Not set' }}</strong>
-    </div>
-  </div>
-
-  <div class="col-md-4">
-    <div class="metric h-100">
-      <span>Pipeline</span>
-      <strong>{{ pipeline|length }} Opportunities</strong>
-    </div>
-  </div>
-</div>
-
-<div class="card p-4 mb-4">
-  <div class="eyebrow">ORGANIZATION CONTEXT</div>
-
-  <h2>How the Coordinator understands your organization</h2>
-
-  {% if org.mission %}
-  <p>
-    <strong>Mission:</strong>
-    {{ org.mission }}
-  </p>
-  {% endif %}
-
-  {% if data.audience %}
-  <p>
-    <strong>Audience and community reach:</strong>
-    {{ data.audience }}
-  </p>
-  {% endif %}
-
-  {% if data.needs %}
-  <p>
-    <strong>Sponsorship needs:</strong>
-    {{ data.needs }}
-  </p>
-  {% endif %}
-
-  {% if data.goals %}
-  <p>
-    <strong>Campaign goals:</strong>
-    {{ data.goals }}
-  </p>
-  {% endif %}
-
-  {% if not org.mission and not data.audience and not data.needs and not data.goals %}
-  <p class="mb-0">
-    Add more organization and initiative details in Setup to improve AI research,
-    outreach, and follow-up quality.
-  </p>
-  {% endif %}
-</div>
-
-{% if intelligence %}
-{% set analysis = intelligence.organization_analysis %}
-{% set strategy = intelligence.sponsorship_strategy %}
-{% set eligibility = intelligence.sponsor_eligibility %}
-
-<div class="card p-4 mb-4">
-  <div class="eyebrow">ORGANIZATION ANALYSIS</div>
-
-  <h2>How the Coordinator evaluates this opportunity</h2>
-
-  {% if analysis.organization_summary %}
-  <p>{{ analysis.organization_summary }}</p>
-  {% endif %}
-
-  {% if analysis.initiative_summary %}
-  <p><strong>Initiative:</strong> {{ analysis.initiative_summary }}</p>
-  {% endif %}
-
-  {% if analysis.sponsor_value_proposition %}
-  <p>
-    <strong>Sponsor value proposition:</strong>
-    {{ analysis.sponsor_value_proposition }}
-  </p>
-  {% endif %}
-
-  {% if analysis.strategy_direction %}
-  <p><strong>Strategy direction:</strong> {{ analysis.strategy_direction }}</p>
-  {% endif %}
-
-  {% if analysis.mission_strengths %}
-  <h3 class="h5 mt-3">Mission strengths</h3>
-  <ul>
-    {% for item in analysis.mission_strengths %}
-    <li>{{ item }}</li>
-    {% endfor %}
-  </ul>
-  {% endif %}
-
-  <div class="row g-3 mt-1">
-    {% for title, items in [
-      ('Community impact', analysis.community_impact),
-      ('Target audiences', analysis.target_audiences),
-      ('Sponsorship objectives', analysis.sponsorship_objectives),
-      ('Risks or information gaps', analysis.risks_or_gaps)
-    ] %}
-    {% if items %}
-    <div class="col-md-6">
-      <h3 class="h5">{{ title }}</h3>
-      <ul class="mb-0">
-        {% for item in items %}
-        <li>{{ item }}</li>
-        {% endfor %}
-      </ul>
-    </div>
-    {% endif %}
-    {% endfor %}
-  </div>
-</div>
-
-<div class="card p-4 mb-4">
-  <div class="eyebrow">SPONSORSHIP STRATEGY</div>
-
-  <h2>{{ strategy.strategic_theme or 'Recommended sponsorship approach' }}</h2>
-
-  {% if strategy.positioning_statement %}
-  <p>{{ strategy.positioning_statement }}</p>
-  {% endif %}
-
-  {% if strategy.recommended_approach %}
-  <p><strong>Recommended approach:</strong> {{ strategy.recommended_approach }}</p>
-  {% endif %}
-
-  {% if strategy.sponsor_benefits %}
-  <h3 class="h5 mt-3">Sponsor benefits</h3>
-  <ul>
-    {% for item in strategy.sponsor_benefits %}
-    <li>{{ item }}</li>
-    {% endfor %}
-  </ul>
-  {% endif %}
-
-  {% if strategy.objectives %}
-  <h3 class="h5 mt-3">Objectives</h3>
-  <div class="row g-3">
-    {% for objective in strategy.objectives %}
-    <div class="col-md-6">
-      <div class="asset h-100">
-        <strong>{{ objective.objective }}</strong>
-        <p class="mb-1">{{ objective.rationale }}</p>
-        <small>Success measure: {{ objective.success_measure }}</small>
+  {% if dashboard.recent_activity %}
+  <div class="list-group list-group-flush mt-3">
+    {% for item in dashboard.recent_activity %}
+    <div class="list-group-item px-0">
+      <div class="d-flex flex-wrap justify-content-between gap-2">
+        <span>{{ item.message }}</span>
+        <time class="small text-muted" datetime="{{ item.occurred_at.isoformat() }}">
+          {{ item.occurred_at.strftime('%b %d, %Y') }}
+        </time>
       </div>
     </div>
     {% endfor %}
   </div>
-  {% endif %}
-
-  <div class="row g-3 mt-1">
-    {% for title, items in [
-      ('Partnership principles', strategy.partnership_principles),
-      ('Activation priorities', strategy.activation_priorities),
-      ('Measurement priorities', strategy.measurement_priorities),
-      ('Recommended next steps', strategy.recommended_next_steps),
-      ('Risks or constraints', strategy.risks_or_constraints)
-    ] %}
-    {% if items %}
-    <div class="col-md-6">
-      <h3 class="h5">{{ title }}</h3>
-      <ul class="mb-0">
-        {% for item in items %}
-        <li>{{ item }}</li>
-        {% endfor %}
-      </ul>
-    </div>
-    {% endif %}
-    {% endfor %}
-  </div>
-</div>
-
-<div class="card p-4 mb-4">
-  <div class="eyebrow">SPONSOR ELIGIBILITY</div>
-
-  <div class="d-flex flex-wrap justify-content-between gap-2">
-    <h2 class="mb-0">Sponsor research safeguards</h2>
-    {% if eligibility %}
-    <span class="badge text-bg-{{ 'success' if not eligibility.research_blocked else 'warning' }}">
-      {{ eligibility.eligibility_status.value|replace('_', ' ')|title }}
-    </span>
-    {% endif %}
-  </div>
-
-  {% if eligibility %}
-  <p class="mt-3 mb-2">
-    <strong>Sponsor research allowed:</strong>
-    {{ 'Yes' if not eligibility.research_blocked else 'No' }}
-  </p>
-  <p class="mb-2">
-    <strong>Eligibility confidence:</strong>
-    {{ eligibility.confidence.value|title }}
-  </p>
-
-  {% if eligibility.excluded_industries %}
-  <h3 class="h5 mt-3">Excluded industries and categories</h3>
-  <ul>
-    {% for exclusion in eligibility.excluded_industries %}
-    <li>
-      <strong>{{ exclusion.industry_label }}</strong>:
-      {{ exclusion.reason_code|replace('_', ' ') }}
-    </li>
-    {% endfor %}
-  </ul>
-  {% endif %}
-
-  {% if eligibility.audience_age_context.value == 'unclear' %}
-  <div class="alert alert-warning mb-3">
-    Audience age context is unclear. Confirm the audience age before beginning
-    sponsor research.
-  </div>
-  {% endif %}
-
-  {% if eligibility.confidence.value == 'low' and eligibility.audience_age_context.value != 'unclear' %}
-  <div class="alert alert-warning mb-3">
-    Some eligibility facts remain uncertain. Review the missing information
-    before beginning sponsor research.
-  </div>
-  {% endif %}
-
-  {% if eligibility.blocking_reasons or eligibility.missing_information %}
-  <div class="alert alert-warning mb-3">
-    {% for reason in eligibility.blocking_reasons %}
-    <div>{{ reason|replace('_', ' ')|capitalize }}</div>
-    {% endfor %}
-    {% for item in eligibility.missing_information %}
-    <div>Missing: {{ item|replace('_', ' ') }}</div>
-    {% endfor %}
-  </div>
-  {% endif %}
-
-  <p class="small text-muted mb-0">
-    Eligibility rules version: {{ eligibility.rule_version }}
-  </p>
   {% else %}
-  <div class="alert alert-warning mt-3 mb-0">
-    Sponsor eligibility analysis has not been generated. Regenerate
-    sponsorship intelligence before beginning category research.
-  </div>
+  <p class="text-muted mt-3 mb-0">
+    Activity will appear here as your AI team completes work.
+  </p>
   {% endif %}
-</div>
+</section>
 
-<div class="card p-4 mb-4">
-  <div class="eyebrow">RECOMMENDED SPONSOR CATEGORIES</div>
-
-  <h2>Where would you like to begin?</h2>
-
-  <p>
-    These organization-specific sponsor categories were generated for this
-    initiative. Select a category as the starting point for focused sponsor
-    research.
-  </p>
-
-  <div class="table-responsive">
-    <table class="table align-middle mb-0">
-      <thead>
-        <tr>
-          <th>Priority</th>
-          <th>Category</th>
-          <th>Why It Fits</th>
-          <th></th>
-        </tr>
-      </thead>
-
-      <tbody>
-        {% for category in categories %}
-        {% set category_decision = (category_research_decisions|default({})).get(category.slug) %}
-        <tr>
-          <td>
-            <span class="score">{{ category.score }}</span>
-          </td>
-
-          <td>
-            <strong>{{ category.category }}</strong>
-            {% if category.ideal_sponsor_profile %}
-            <div class="small mt-1">
-              {{ category.ideal_sponsor_profile }}
-            </div>
-            {% endif %}
-          </td>
-
-          <td>
-            {{ category.fit }}
-            {% if category.research_direction %}
-            <div class="small mt-1">
-              <strong>Research direction:</strong>
-              {{ category.research_direction }}
-            </div>
-            {% endif %}
-          </td>
-
-          <td class="text-end">
-            {% if category_decision and category_decision.allowed %}
-            <form
-              method="post"
-              action="{{ url_for('prospects', category=category.slug) }}"
-            >
-              <button class="btn btn-sm btn-dark" type="submit">
-                Research This Category
-              </button>
-            </form>
-            {% else %}
-            <button
-              class="btn btn-sm btn-secondary"
-              type="button"
-              disabled
-              title="{{ category_decision.reason if category_decision else 'Sponsor eligibility analysis is required.' }}"
-            >
-              Research This Category
-            </button>
-            {% if category_decision and category_decision.reason %}
-            <div class="small text-muted mt-1">
-              {{ category_decision.reason }}
-            </div>
-            {% endif %}
-            {% endif %}
-          </td>
-        </tr>
-        {% endfor %}
-      </tbody>
-    </table>
-  </div>
-</div>
-
-<div class="card p-4">
-  <div class="eyebrow">CURRENT SPONSORSHIP ASSETS</div>
-
-  <h2>What your organization can offer sponsors</h2>
-
-  <p>
-    These sponsorship assets were generated for this organization and
-    initiative.
-  </p>
-
-  <div class="row g-3">
-    {% for asset in assets %}
-    <div class="col-md-6">
-      <div class="asset h-100">
-        <strong>{{ asset.name }}</strong>
-
-        {% if asset.description %}
-        <p class="mb-1">{{ asset.description }}</p>
+<section class="card p-4" aria-labelledby="setup-summary-heading">
+  <div class="d-flex flex-wrap justify-content-between align-items-center gap-3">
+    <div>
+      <div class="eyebrow">ORGANIZATION SETUP</div>
+      <h2 class="h5 mb-1" id="setup-summary-heading">
+        {{ organization.name }}
+      </h2>
+      <p class="mb-0 text-muted">
+        {{ organization.organization_type or 'Organization type not set' }}
+        {% if organization.location %} · {{ organization.location }}{% endif %}
+        {% if organization.updated_at %}
+        · Updated {{ organization.updated_at.strftime('%b %d, %Y') }}
         {% endif %}
-
-        <p class="mb-1">
-          {{ asset.sponsor_value or asset.value }}
-        </p>
-
-        {% if asset.audience_value %}
-        <p class="small mb-1">
-          <strong>Audience value:</strong> {{ asset.audience_value }}
-        </p>
-        {% endif %}
-
-        {% if asset.delivery_method %}
-        <p class="small mb-1">
-          <strong>Delivery:</strong> {{ asset.delivery_method }}
-        </p>
-        {% endif %}
-
-        <small>Capacity: {{ asset.capacity }}</small>
-
-        {% if asset.exclusivity %}
-        <small class="d-block">Exclusivity: {{ asset.exclusivity }}</small>
-        {% endif %}
-
-        {% if asset.measurement_method %}
-        <small class="d-block">
-          Measurement: {{ asset.measurement_method }}
-        </small>
-        {% endif %}
-      </div>
+      </p>
     </div>
-    {% endfor %}
+    <a class="btn btn-outline-dark" href="{{ url_for('setup') }}">
+      Edit Setup
+    </a>
   </div>
-</div>
-
-{% endif %}
+</section>
 
 {% endblock %}

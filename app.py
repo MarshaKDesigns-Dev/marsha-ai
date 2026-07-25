@@ -7,6 +7,7 @@ from flask import render_template, request, redirect, url_for, flash, session
 from openai import OpenAI
 from application import app
 from extensions import db
+from services.dashboard import build_dashboard
 from services.sponsor_eligibility_gate import (
     CategoryResearchDecision,
     evaluate_category_research,
@@ -1447,8 +1448,7 @@ def workspace():
         )
         return redirect(url_for("setup"))
 
-    data = get_initiative_profile()
-    session["initiative"] = data
+    session["initiative"] = get_initiative_profile()
     intelligence = get_sponsorship_intelligence(
         organization,
         initiative,
@@ -1462,35 +1462,33 @@ def workspace():
         if intelligence
         else []
     )
-    eligibility = (
-        getattr(intelligence, "sponsor_eligibility", None)
-        if intelligence is not None
-        else None
+    top_category = categories[0] if categories else None
+    prospects = SponsorProspect.query.filter_by(
+        organization_id=organization.id,
+        initiative_id=initiative.id,
+        is_active=True,
+    ).order_by(
+        SponsorProspect.updated_at.desc(),
+        SponsorProspect.id.desc(),
+    ).all()
+    opportunities = Opportunity.query.order_by(
+        Opportunity.updated_at.desc()
+    ).all()
+    dashboard = build_dashboard(
+        organization=organization,
+        initiative=initiative,
+        intelligence=intelligence,
+        generation_job=generation_job,
+        top_category=top_category,
+        prospects=prospects,
+        opportunities=opportunities,
     )
-    category_research_decisions = {
-        category.slug: evaluate_category_research(
-            eligibility,
-            category,
-        )
-        for category in categories
-    }
 
     return render_template(
         "workspace.html",
-        org=get_org_profile(),
         organization=organization,
         initiative=initiative,
-        data=data,
-        intelligence=intelligence,
-        generation_job=generation_job,
-        categories=categories,
-        category_research_decisions=category_research_decisions,
-        assets=(
-            get_sponsorship_assets(organization, initiative)
-            if intelligence
-            else []
-        ),
-        pipeline=Opportunity.query.all()
+        dashboard=dashboard,
     )
 
 
