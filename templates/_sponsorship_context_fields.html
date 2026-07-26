@@ -1,7 +1,11 @@
 <section class="context-assessment" aria-labelledby="needs-assessment-heading">
   <div class="eyebrow">SPONSORSHIP NEEDS ASSESSMENT</div>
-  <h2 id="needs-assessment-heading">What support would make this initiative possible?</h2>
-  <p>Select every contribution you can credibly use. These answers guide strategy and sponsor research.</p>
+  <h2 id="needs-assessment-heading">What support would make this initiative successful?</h2>
+  <p>
+    Select every contribution you can credibly use. Marsha AI uses these
+    answers to identify sponsorship opportunities that fit your organization
+    and initiative.
+  </p>
 
   <div class="needs-grid mb-3">
     {% for need in sponsorship_need_options %}
@@ -28,15 +32,28 @@
   <label class="form-label fw-bold" for="desired_sponsor_categories">
     Desired Sponsor Categories
   </label>
+  <p class="form-text" id="desired-sponsor-categories-help">
+    Optional: Enter one industry or business category per line for Marsha AI
+    to explore, or leave this blank and allow Marsha AI to recommend
+    categories. Examples: Automotive, Healthcare, Financial Services,
+    Restaurants, Retail, Education, Technology, Hospitality.
+  </p>
   <textarea class="form-control mb-3" id="desired_sponsor_categories"
     name="desired_sponsor_categories" rows="3"
-    placeholder="One category per line"
+    aria-describedby="desired-sponsor-categories-help"
+    placeholder="Automotive&#10;Healthcare&#10;Financial Services"
   >{{ desired_categories_value }}</textarea>
 
   <label class="form-label fw-bold" for="dream_sponsors">Dream Sponsors</label>
-  <p class="form-text">If you could partner with anyone, who would you most like to work with? Dream sponsors guide research but do not guarantee a recommendation.</p>
+  <p class="form-text" id="dream-sponsors-help">
+    If you could partner with any organization, who would be at the top of
+    your wish list? Dream Sponsors guide research but do not guarantee a
+    recommendation. Enter one organization per line.
+  </p>
   <textarea class="form-control mb-3" id="dream_sponsors"
-    name="dream_sponsors" rows="3" placeholder="One organization per line"
+    name="dream_sponsors" rows="3"
+    aria-describedby="dream-sponsors-help"
+    placeholder="One organization per line"
   >{{ dream_sponsors_value }}</textarea>
 
   <div class="row g-3 mb-3">

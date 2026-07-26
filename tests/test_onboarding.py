@@ -59,6 +59,71 @@ def test_setup_page_collects_required_operating_context():
         assert field in template
 
 
+def test_setup_page_uses_customer_facing_intelligence_copy():
+    setup = read_text("templates/setup.html")
+    context = read_text("templates/_sponsorship_context_fields.html")
+
+    assert "Tell us about your organization" in setup
+    assert "Tell us about the sponsorship initiative" in setup
+    assert "Success Goals" in setup
+    assert "Campaign Goals" not in setup
+    assert "Save Organization Intelligence" in setup
+    assert "Save Changes and Return to Workspace" not in setup
+    assert (
+        "Marsha AI uses this information as your organization’s working"
+        in setup
+    )
+
+    assert "What support would make this initiative successful?" in context
+    assert (
+        "identify sponsorship opportunities that fit your organization"
+        in context
+    )
+    assert "leave this blank and allow Marsha AI to recommend" in context
+    for example in (
+        "Automotive",
+        "Healthcare",
+        "Financial Services",
+        "Restaurants",
+        "Retail",
+        "Education",
+        "Technology",
+        "Hospitality",
+    ):
+        assert example in context
+    assert (
+        "If you could partner with any organization, who would be at the top"
+        in context
+    )
+    assert 'aria-describedby="desired-sponsor-categories-help"' in context
+    assert 'aria-describedby="dream-sponsors-help"' in context
+
+
+def test_setup_page_labels_remain_explicitly_associated():
+    template = read_text("templates/setup.html")
+
+    for field_id in (
+        "organization_name",
+        "organization_type",
+        "city",
+        "state",
+        "mission",
+        "website",
+        "phone",
+        "sender_name",
+        "sender_title",
+        "sender_email",
+        "initiative_name",
+        "fundraising_target",
+        "deadline",
+        "audience",
+        "needs",
+        "goals",
+    ):
+        assert f'for="{field_id}"' in template
+        assert f'id="{field_id}"' in template
+
+
 def test_workspace_uses_database_backed_organization_and_initiative():
     template = read_text("templates/workspace.html")
 
