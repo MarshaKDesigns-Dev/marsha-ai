@@ -200,8 +200,12 @@ def process_next_job(
         mark_failed(
             job,
             message=result.message,
-            error_code=result.status,
+            error_code=(
+                getattr(result, "error_code", None)
+                or result.status
+            ),
             generation_step=result.generation_step,
+            failure_details=getattr(result, "failure_details", None),
             session=db.session,
         )
         logger.warning(
@@ -215,7 +219,8 @@ def process_next_job(
             getattr(job, "organization_id", None),
             getattr(job, "initiative_id", None),
             getattr(result, "generation_step", None),
-            getattr(result, "status", None),
+            getattr(result, "error_code", None)
+            or getattr(result, "status", None),
         )
         return True
 

@@ -25,6 +25,11 @@ from pydantic import (
 
 from services.sponsor_eligibility import SponsorEligibilityAnalysis
 from services.sponsor_eligibility_gate import evaluate_category_research
+from services.sponsor_preferences import evaluate_sponsor_preference
+from services.sponsorship_context import (
+    build_sponsorship_context,
+    format_sponsorship_context,
+)
 
 
 DEFAULT_MODEL = os.getenv(
@@ -77,6 +82,22 @@ class ConfidenceLevel(str, Enum):
     LOW = "low"
 
 
+class ContributionType(str, Enum):
+    CASH_SPONSORSHIP = "Cash sponsorship"
+    IN_KIND = "In-kind contribution"
+    SERVICE = "Service contribution"
+    SCHOLARSHIP = "Scholarship support"
+    MEDIA = "Media partnership"
+    COMMUNITY = "Community partnership"
+    COMBINATION = "Justified combination"
+
+
+class RecommendationStrength(str, Enum):
+    HIGH = "High"
+    MEDIUM = "Medium"
+    LOW = "Low"
+
+
 def _public_url(value: str) -> str:
     value = str(value or "").strip()
     parsed = urlsplit(value)
@@ -95,6 +116,17 @@ class ProspectEvidence(BaseModel):
     description: str = Field(min_length=1, max_length=1000)
 
     _validate_url = field_validator("url")(_public_url)
+
+
+class VerifiedFact(BaseModel):
+    """One factual statement explicitly supported by cited research."""
+
+    model_config = ConfigDict(frozen=True)
+
+    statement: str = Field(min_length=1, max_length=1000)
+    source_url: str
+
+    _validate_url = field_validator("source_url")(_public_url)
 
 
 class PublicBusinessContact(BaseModel):
@@ -143,6 +175,15 @@ class SponsorProspectCandidate(BaseModel):
     industry: str = Field(min_length=1, max_length=200)
     why_fits: str = Field(min_length=1, max_length=2000)
     relevant_connection: str = Field(min_length=1, max_length=2000)
+    verified_information: list[VerifiedFact] = Field(min_length=1)
+    why_recommended: str = Field(min_length=1, max_length=2000)
+    organization_fit: str = Field(min_length=1, max_length=2000)
+    recommended_ask: str = Field(min_length=1, max_length=2000)
+    contribution_type: ContributionType
+    recommended_need: str | None = Field(default=None, max_length=200)
+    recommended_asset_name: str | None = Field(default=None, max_length=200)
+    why_may_say_yes: str = Field(min_length=1, max_length=2000)
+    why_may_say_yes_evidence_urls: list[str] = Field(min_length=1)
     geographic_relevance: str = Field(min_length=1, max_length=1000)
     evidence_type: EvidenceType
     evidence_sources: list[ProspectEvidence] = Field(min_length=1)
@@ -154,9 +195,15 @@ class SponsorProspectCandidate(BaseModel):
     geographic_fit_score: int = Field(ge=0, le=20)
     evidence_score: int = Field(ge=0, le=25)
     contactability_score: int = Field(ge=0, le=15)
+    need_alignment_score: int = Field(ge=0, le=20)
+    industry_alignment_score: int = Field(ge=0, le=15)
+    ask_credibility_score: int = Field(ge=0, le=15)
     contact: PublicBusinessContact | None = None
 
     _validate_website = field_validator("website")(_public_url)
+    _validate_say_yes_evidence = field_validator(
+        "why_may_say_yes_evidence_urls",
+    )(lambda values: [_public_url(value) for value in values])
 
     @property
     def ranking_score(self) -> int:
@@ -184,6 +231,72 @@ class SponsorProspectCandidate(BaseModel):
             f"Ranked {self.ranking_score}/100, led by {strongest}; "
             f"evidence is {self.confidence.value} confidence."
         )
+
+    @property
+    def strength_factors(self) -> dict[str, int]:
+        """Return the fixed 100-point strength rubric.
+
+        Need alignment (20), industry alignment (15), combined mission and
+        audience alignment (20), geography (15), evidence quality/recency
+        (15), and ask credibility (15) produce the score. Relationship and
+        exclusion rules are deterministic eligibility gates and therefore
+        cannot be offset by a high score.
+        """
+
+        mission_audience = round(
+            (self.mission_fit_score + self.audience_fit_score) / 2
+        )
+        geography = round(self.geographic_fit_score * 15 / 20)
+        evidence = round(self.evidence_score * 15 / 25)
+        return {
+            "sponsorship_need_alignment": self.need_alignment_score,
+            "industry_alignment": self.industry_alignment_score,
+            "mission_and_audience_alignment": mission_audience,
+            "geographic_relevance": geography,
+            "evidence_quality_and_recency": evidence,
+            "recommended_ask_credibility": self.ask_credibility_score,
+        }
+
+    @property
+    def recommendation_strength_score(self) -> int:
+        return sum(self.strength_factors.values())
+
+    @property
+    def recommendation_strength(self) -> RecommendationStrength:
+        score = self.recommendation_strength_score
+        if score >= 75:
+            return RecommendationStrength.HIGH
+        if score >= 50:
+            return RecommendationStrength.MEDIUM
+        return RecommendationStrength.LOW
+
+    @model_validator(mode="after")
+    def require_supported_recommendation(self):
+        source_urls = {
+            _canonical_url(item.url)
+            for item in self.evidence_sources
+        }
+        fact_urls = {
+            _canonical_url(item.source_url)
+            for item in self.verified_information
+        }
+        if not fact_urls.issubset(source_urls):
+            raise ValueError(
+                "Verified information must reference supplied evidence."
+            )
+        say_yes_urls = {
+            _canonical_url(url)
+            for url in self.why_may_say_yes_evidence_urls
+        }
+        if not say_yes_urls.issubset(source_urls):
+            raise ValueError(
+                "Why-may-say-yes evidence must reference supplied evidence."
+            )
+        if not self.recommended_need and not self.recommended_asset_name:
+            raise ValueError(
+                "A recommended ask must identify an approved need or asset."
+            )
+        return self
 
 
 class SponsorResearchResult(BaseModel):
@@ -251,10 +364,26 @@ def validate_researched_prospects(
     *,
     cited_urls: set[str],
     eligibility: SponsorEligibilityAnalysis,
+    organization: Any | None = None,
+    initiative: Any | None = None,
+    assets: list[Any] | None = None,
 ) -> list[SponsorProspectCandidate]:
     """Reject unsupported, excluded, or duplicate prospect candidates."""
 
     accepted: dict[str, SponsorProspectCandidate] = {}
+    approved_needs = set(
+        build_sponsorship_context(organization, initiative)[
+            "structured_needs"
+        ]
+        if organization is not None and initiative is not None
+        else []
+    )
+    approved_assets = {
+        str(getattr(asset, "name", "") or "").strip()
+        for asset in (assets or [])
+        if getattr(asset, "is_active", True)
+        and getattr(asset, "approval_status", "Approved") == "Approved"
+    }
     for candidate in result.prospects:
         source_urls = {
             _canonical_url(source.url)
@@ -280,6 +409,20 @@ def validate_researched_prospects(
         )
         if not eligibility_decision.allowed:
             continue
+
+        if organization is not None and initiative is not None:
+            preference = evaluate_sponsor_preference(
+                candidate.company_name,
+                organization,
+                initiative,
+            )
+            if not preference.allowed:
+                continue
+            if (
+                candidate.recommended_need not in approved_needs
+                and candidate.recommended_asset_name not in approved_assets
+            ):
+                continue
 
         key = _canonical_url(candidate.website)
         existing = accepted.get(key)
@@ -310,6 +453,10 @@ def research_sponsor_category(
         )
 
     openai_client = client or OpenAI()
+    customer_context = format_sponsorship_context(
+        organization,
+        initiative,
+    )
     asset_summary = [
         {
             "name": getattr(asset, "name", ""),
@@ -343,6 +490,9 @@ Initiative:
 - Sponsorship needs: {getattr(initiative, "needs", "")}
 - Goals: {getattr(initiative, "goals", "")}
 
+Structured research context:
+{customer_context}
+
 Approved category:
 - Name: {getattr(category, "category", "")}
 - Research direction: {getattr(category, "research_direction", "")}
@@ -364,6 +514,20 @@ in the same sources used to verify the company; do not perform additional
 searches solely to find contact details. A public contact may be null when none
 is verified. Score mission fit, audience fit, geography, evidence, and
 contactability independently. Use today's actual date for research_date.
+Every recommendation must separately provide verified_information,
+why_recommended, organization_fit, recommended_ask, contribution_type,
+recommended_need or recommended_asset_name, why_may_say_yes, and
+why_may_say_yes_evidence_urls.
+Verified information must cite one of the returned evidence URLs. Explanations
+are Marsha AI assessments and must not present inference as verified fact.
+Why-may-say-yes evidence URLs must cite the public evidence supporting that
+specific assessment.
+The recommended ask must match one of the structured sponsorship needs or one
+of the approved assets. Dream sponsors guide research but never replace public
+evidence. Never-contact, current-sponsor, existing-relationship, and
+already-contacted rules override recommendations. Score need alignment,
+industry alignment, and ask credibility independently; recommendation strength
+is calculated by the application, not by the model.
 """
 
     try:
@@ -436,6 +600,9 @@ contactability independently. Use today's actual date for research_date.
         parsed,
         cited_urls=cited_urls,
         eligibility=eligibility,
+        organization=organization,
+        initiative=initiative,
+        assets=assets,
     )
     if not prospects:
         raise NoCredibleProspectsError(

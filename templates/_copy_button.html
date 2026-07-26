@@ -1,0 +1,7 @@
+{% macro copy_button(target_id, label='Copy') -%}
+<button class="btn btn-sm btn-outline-light copy-button" type="button"
+  data-copy-target="{{ target_id }}" data-copy-label="{{ label }}"
+  aria-label="{{ label }}">
+  {{ label }}
+</button>
+{%- endmacro %}

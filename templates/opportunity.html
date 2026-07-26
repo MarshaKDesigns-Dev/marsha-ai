@@ -1,4 +1,6 @@
-{% extends "base.html" %} {% block content %}
+{% extends "base.html" %}
+{% from "_copy_button.html" import copy_button %}
+{% block content %}
 
 <a href="{{ url_for('show_pipeline') }}">← Back to pipeline</a>
 
@@ -91,13 +93,15 @@
         />
 
         <label class="form-label fw-bold">Notes</label>
-        <textarea class="form-control mb-3" name="notes" rows="5">
+        <textarea class="form-control mb-3" id="opportunity-notes"
+          name="notes" rows="5">
 {{ opp.notes or '' }}</textarea
         >
 
         <button class="btn btn-outline-dark w-100">
           Save Opportunity Update
         </button>
+        {{ copy_button('opportunity-notes', 'Copy notes') }}
       </form>
     </div>
   </div>
@@ -178,6 +182,7 @@
 
         <textarea
           class="form-control mb-3"
+          id="outreach-message"
           name="message"
           rows="18"
           required
@@ -194,6 +199,7 @@
         </button>
         {% endif %}
       </form>
+      {{ copy_button('outreach-message', 'Copy call script') }}
 
       {% if opp.message_reviewed_at %}
       <form
@@ -225,6 +231,7 @@
 
         <textarea
           class="form-control mb-3"
+          id="outreach-message"
           name="message"
           rows="14"
           required
@@ -241,6 +248,7 @@
         </button>
         {% endif %}
       </form>
+      {{ copy_button('outreach-message', 'Copy message') }}
 
       {% if opp.message_reviewed_at %}
       <form
@@ -269,6 +277,7 @@
 
         <input
           class="form-control mb-3"
+          id="outreach-subject"
           name="subject"
           value="{{ default_subject }}"
           required
@@ -282,6 +291,7 @@
 
         <textarea
           class="form-control mb-3"
+          id="outreach-message"
           name="message"
           rows="18"
           required
@@ -296,6 +306,10 @@
         </button>
         {% endif %}
       </form>
+      <div class="d-flex gap-2 mb-3">
+        {{ copy_button('outreach-subject', 'Copy subject') }}
+        {{ copy_button('outreach-message', 'Copy message') }}
+      </div>
 
       {% if opp.message_reviewed_at %}
       <form
@@ -404,6 +418,7 @@
 
         <input
           class="form-control mb-3"
+          id="follow-up-subject"
           name="subject"
           value="{{ opp.follow_up_subject or '' }}"
           required
@@ -422,6 +437,7 @@
 
         <textarea
           class="form-control mb-3"
+          id="follow-up-message"
           name="message"
           rows="12"
           required
@@ -436,6 +452,12 @@
         </button>
         {% endif %}
       </form>
+      <div class="d-flex gap-2 mb-3">
+        {% if (opp.outreach_channel or "email") == "email" %}
+        {{ copy_button('follow-up-subject', 'Copy follow-up subject') }}
+        {% endif %}
+        {{ copy_button('follow-up-message', 'Copy follow-up') }}
+      </div>
 
       <form
         method="post"

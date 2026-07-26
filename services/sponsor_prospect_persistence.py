@@ -39,6 +39,19 @@ def _serialize_evidence(candidate: SponsorProspectCandidate) -> str:
     )
 
 
+def _serialize_verified_information(
+    candidate: SponsorProspectCandidate,
+) -> str:
+    return json.dumps(
+        [
+            fact.model_dump(mode="json")
+            for fact in candidate.verified_information
+        ],
+        ensure_ascii=False,
+        sort_keys=True,
+    )
+
+
 def persist_sponsor_prospects(
     organization: Any,
     initiative: Any,
@@ -117,6 +130,30 @@ def persist_sponsor_prospects(
             )
             record.ranking_score = candidate.ranking_score
             record.ranking_explanation = candidate.ranking_explanation
+            record.verified_information_json = (
+                _serialize_verified_information(candidate)
+            )
+            record.why_recommended = candidate.why_recommended
+            record.organization_fit = candidate.organization_fit
+            record.recommended_ask = candidate.recommended_ask
+            record.contribution_type = candidate.contribution_type.value
+            record.why_may_say_yes = candidate.why_may_say_yes
+            record.why_may_say_yes_evidence_json = json.dumps(
+                candidate.why_may_say_yes_evidence_urls,
+                ensure_ascii=False,
+                sort_keys=True,
+            )
+            record.recommendation_strength = (
+                candidate.recommendation_strength.value
+            )
+            record.recommendation_strength_score = (
+                candidate.recommendation_strength_score
+            )
+            record.strength_factors_json = json.dumps(
+                candidate.strength_factors,
+                ensure_ascii=False,
+                sort_keys=True,
+            )
             record.contact_name = contact.name if contact else None
             record.contact_title = contact.title if contact else None
             record.contact_department = contact.department if contact else None

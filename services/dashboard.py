@@ -79,6 +79,8 @@ class DashboardView:
     greeting: str
     days_remaining: int | None
     top_priority: DashboardPriority
+    next_title: str
+    next_message: str
     progress: tuple[DashboardProgressStep, ...]
     workers: tuple[DashboardWorker, ...]
     recent_activity: tuple[DashboardActivity, ...]
@@ -95,6 +97,8 @@ def _first_name(sender_name: str | None) -> str:
 
 
 def _greeting(hour: int, sender_name: str | None) -> str:
+    if not (sender_name or "").strip():
+        return "Welcome back"
     if hour < 12:
         salutation = "Good morning"
     elif hour < 18:
@@ -102,6 +106,59 @@ def _greeting(hour: int, sender_name: str | None) -> str:
     else:
         salutation = "Good evening"
     return f"{salutation}, {_first_name(sender_name)}"
+
+
+def _whats_next(priority: DashboardPriority) -> tuple[str, str]:
+    """Explain the stage that follows the current required action."""
+
+    return {
+        "Strategy needs attention": (
+            "Strategy generation resumes",
+            "After a successful retry, you will review the generated sponsorship assets.",
+        ),
+        "Strategy work is underway": (
+            "Review Sponsorship Assets",
+            "When the Strategy Worker finishes, approve the benefits you can deliver.",
+        ),
+        "Resolve required information": (
+            "Generate your sponsorship strategy",
+            "After the missing information is resolved, the Strategy Worker can build the plan.",
+        ),
+        "Follow-up due": (
+            "Update the sponsor pipeline",
+            "After following up, record the response and next commitment.",
+        ),
+        "Approve sponsor outreach": (
+            "Contact the sponsor",
+            "After approval, use the verified delivery route and track the response.",
+        ),
+        "Review Sponsorship Assets.": (
+            "Research aligned sponsors",
+            "After at least one asset is approved, the Research Worker can find prospects.",
+        ),
+        "Create your sponsorship strategy": (
+            "Review Sponsorship Assets",
+            "After generation, confirm which recommended benefits you can deliver.",
+        ),
+        "Sponsor research is ready": (
+            "Review Sponsor Opportunities",
+            "After research, choose the evidence-backed sponsors you want to pursue.",
+        ),
+        "Review Sponsor Opportunities": (
+            "Prepare sponsor outreach",
+            "After approving a prospect, create an opportunity and review its outreach.",
+        ),
+        "Review your active pipeline": (
+            "Keep sponsor conversations moving",
+            "Record responses, commitments, and follow-up dates for each opportunity.",
+        ),
+    }.get(
+        priority.title,
+        (
+            "Monitor your active pipeline",
+            "Your AI team will surface the next action when one becomes available.",
+        ),
+    )
 
 
 def _as_utc(value: datetime | None) -> datetime | None:
@@ -264,12 +321,17 @@ def _top_priority(
     if job_status == "failed":
         return DashboardPriority(
             title="Strategy needs attention",
-            message="The strategy could not be completed safely.",
+            message="Strategy generation stopped before completion.",
             level="warning",
             action=DashboardAction(
                 "Try again",
                 "generate_workspace_sponsorship_intelligence",
                 "POST",
+                form_data=(
+                    {"regenerate": "true"}
+                    if intelligence is not None
+                    else {}
+                ),
             ),
             supporting_line=(
                 getattr(generation_job, "message", None)
@@ -743,24 +805,29 @@ def build_dashboard(
             "The first approved prospect",
         )
 
+    top_priority = _top_priority(
+        intelligence=intelligence,
+        generation_job=generation_job,
+        eligibility=eligibility,
+        top_category=top_category,
+        meeting_complete=meeting_complete,
+        approved_asset_count=approved_asset_count,
+        prospects=prospect_list,
+        opportunities=opportunity_list,
+        overdue_follow_ups=overdue_follow_ups,
+        outreach_waiting=outreach_waiting,
+    )
+    next_title, next_message = _whats_next(top_priority)
+
     return DashboardView(
         greeting=_greeting(current.hour, getattr(organization, "sender_name", None)),
         days_remaining=_days_remaining(
             getattr(initiative, "deadline", None),
             today,
         ),
-        top_priority=_top_priority(
-            intelligence=intelligence,
-            generation_job=generation_job,
-            eligibility=eligibility,
-            top_category=top_category,
-            meeting_complete=meeting_complete,
-            approved_asset_count=approved_asset_count,
-            prospects=prospect_list,
-            opportunities=opportunity_list,
-            overdue_follow_ups=overdue_follow_ups,
-            outreach_waiting=outreach_waiting,
-        ),
+        top_priority=top_priority,
+        next_title=next_title,
+        next_message=next_message,
         progress=progress,
         workers=(
             strategy_worker,

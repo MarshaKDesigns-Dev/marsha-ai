@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
@@ -166,6 +167,7 @@ def mark_completed(
     job.generation_step = generation_step
     job.error_code = None
     job.message = None
+    job.failure_details_json = None
     job.active_key = None
     job.lease_expires_at = None
     job.completed_at = timestamp
@@ -182,6 +184,7 @@ def mark_failed(
     message: str,
     error_code: str,
     generation_step: str | None = None,
+    failure_details: dict[str, Any] | None = None,
     session=None,
     commit: bool = True,
     now: datetime | None = None,
@@ -192,6 +195,11 @@ def mark_failed(
     job.generation_step = generation_step
     job.error_code = error_code
     job.message = message
+    job.failure_details_json = (
+        json.dumps(failure_details, sort_keys=True)
+        if failure_details
+        else None
+    )
     job.active_key = None
     job.lease_expires_at = None
     job.completed_at = timestamp

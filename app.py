@@ -18,6 +18,15 @@ from services.sponsor_research_readiness import (
     evaluate_sponsor_research_readiness,
     validate_approval_status,
 )
+from services.sponsorship_context import (
+    GEOGRAPHIC_RADII,
+    GEOGRAPHIC_SCOPES,
+    SPONSORSHIP_NEEDS,
+    dump_list,
+    json_list,
+    parse_multiline,
+    validate_needs,
+)
 
 if __name__ == "__main__":
     sys.modules.setdefault("app", sys.modules[__name__])
@@ -41,6 +50,109 @@ CATEGORIES = [
     {"slug": "financial", "category": "Financial Services", "fit": "Financial confidence, entrepreneurship, women’s economic influence, and community education.", "score": 86},
     {"slug": "automotive", "category": "Automotive", "fit": "Local visibility, transportation, event activation, and community sponsorship.", "score": 80},
 ]
+
+
+def _phase1_form_context(organization=None, initiative=None):
+    return {
+        "sponsorship_need_options": SPONSORSHIP_NEEDS,
+        "geographic_scope_options": GEOGRAPHIC_SCOPES,
+        "geographic_radius_options": GEOGRAPHIC_RADII,
+        "selected_sponsorship_needs": set(
+            json_list(
+                getattr(initiative, "sponsorship_needs_json", "[]")
+            )
+        ),
+        "dream_sponsors_value": "\n".join(
+            json_list(getattr(initiative, "dream_sponsors_json", "[]"))
+        ),
+        "desired_categories_value": "\n".join(
+            json_list(
+                getattr(
+                    initiative,
+                    "desired_sponsor_categories_json",
+                    "[]",
+                )
+            )
+        ),
+        "current_sponsors_value": "\n".join(
+            json_list(getattr(organization, "current_sponsors_json", "[]"))
+        ),
+        "existing_relationships_value": "\n".join(
+            json_list(
+                getattr(organization, "existing_relationships_json", "[]")
+            )
+        ),
+        "already_contacted_value": "\n".join(
+            json_list(
+                getattr(
+                    organization,
+                    "businesses_already_contacted_json",
+                    "[]",
+                )
+            )
+        ),
+        "never_contact_value": "\n".join(
+            json_list(
+                getattr(
+                    organization,
+                    "businesses_never_contact_json",
+                    "[]",
+                )
+            )
+        ),
+    }
+
+
+def _apply_phase1_context(organization, initiative):
+    selected_needs = validate_needs(
+        request.form.getlist("sponsorship_needs")
+    )
+    initiative.sponsorship_needs_json = dump_list(selected_needs)
+    initiative.sponsorship_needs_other = request.form.get(
+        "sponsorship_needs_other",
+        "",
+    ).strip()
+    initiative.sponsorship_needs_notes = request.form.get(
+        "sponsorship_needs_notes",
+        "",
+    ).strip()
+    initiative.desired_sponsor_categories_json = dump_list(
+        parse_multiline(
+            request.form.get("desired_sponsor_categories", "")
+        )
+    )
+    scope = request.form.get("geographic_scope", "").strip()
+    initiative.geographic_scope = (
+        scope if scope in GEOGRAPHIC_SCOPES else None
+    )
+    radius_value = request.form.get("geographic_radius_miles", "").strip()
+    radius = int(radius_value) if radius_value.isdigit() else None
+    initiative.geographic_radius_miles = (
+        radius
+        if initiative.geographic_scope == "Radius"
+        and radius in GEOGRAPHIC_RADII
+        else None
+    )
+    initiative.dream_sponsors_json = dump_list(
+        parse_multiline(request.form.get("dream_sponsors", ""))
+    )
+    organization.current_sponsors_json = dump_list(
+        parse_multiline(request.form.get("current_sponsors", ""))
+    )
+    organization.existing_relationships_json = dump_list(
+        parse_multiline(request.form.get("existing_relationships", ""))
+    )
+    organization.businesses_already_contacted_json = dump_list(
+        parse_multiline(
+            request.form.get("businesses_already_contacted", "")
+        )
+    )
+    organization.businesses_never_contact_json = dump_list(
+        parse_multiline(
+            request.form.get("businesses_never_contact", "")
+        )
+    )
+    return selected_needs
 
 ASSETS = [
     {"name": "Presenting Partnership", "value": "Top-level association with the initiative", "capacity": "1"},
@@ -74,6 +186,10 @@ class Organization(db.Model):
     sender_email = db.Column(db.String(250))
     website = db.Column(db.String(300))
     phone = db.Column(db.String(100))
+    current_sponsors_json = db.Column(db.Text, default="[]")
+    existing_relationships_json = db.Column(db.Text, default="[]")
+    businesses_already_contacted_json = db.Column(db.Text, default="[]")
+    businesses_never_contact_json = db.Column(db.Text, default="[]")
     is_active = db.Column(db.Boolean, default=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(
@@ -107,6 +223,13 @@ class SponsorshipInitiative(db.Model):
     deadline = db.Column(db.Date)
     audience = db.Column(db.Text)
     needs = db.Column(db.Text)
+    sponsorship_needs_json = db.Column(db.Text, default="[]")
+    sponsorship_needs_other = db.Column(db.Text)
+    sponsorship_needs_notes = db.Column(db.Text)
+    desired_sponsor_categories_json = db.Column(db.Text, default="[]")
+    geographic_scope = db.Column(db.String(50))
+    geographic_radius_miles = db.Column(db.Integer)
+    dream_sponsors_json = db.Column(db.Text, default="[]")
     goals = db.Column(db.Text)
     sponsorship_goals = db.Column(db.Text)
     estimated_reach = db.Column(db.Text)
@@ -139,6 +262,7 @@ class SponsorshipIntelligenceJob(db.Model):
     generation_step = db.Column(db.String(100))
     error_code = db.Column(db.String(100))
     message = db.Column(db.Text)
+    failure_details_json = db.Column(db.Text)
     attempt_count = db.Column(db.Integer, nullable=False, default=0)
     worker_id = db.Column(db.String(255))
     active_key = db.Column(db.String(255), nullable=True, unique=True)
@@ -452,6 +576,20 @@ class SponsorProspect(db.Model):
     uncertainty_json = db.Column(db.Text, nullable=False, default="[]")
     ranking_score = db.Column(db.Integer, nullable=False)
     ranking_explanation = db.Column(db.Text, nullable=False)
+    verified_information_json = db.Column(db.Text, nullable=False, default="[]")
+    why_recommended = db.Column(db.Text)
+    organization_fit = db.Column(db.Text)
+    recommended_ask = db.Column(db.Text)
+    contribution_type = db.Column(db.String(50))
+    why_may_say_yes = db.Column(db.Text)
+    why_may_say_yes_evidence_json = db.Column(
+        db.Text,
+        nullable=False,
+        default="[]",
+    )
+    recommendation_strength = db.Column(db.String(20))
+    recommendation_strength_score = db.Column(db.Integer)
+    strength_factors_json = db.Column(db.Text, nullable=False, default="{}")
     contact_name = db.Column(db.String(200))
     contact_title = db.Column(db.String(200))
     contact_department = db.Column(db.String(250))
@@ -498,6 +636,22 @@ class SponsorProspect(db.Model):
     @property
     def uncertainty(self):
         return self._load_list(self.uncertainty_json)
+
+    @property
+    def verified_information(self):
+        return self._load_list(self.verified_information_json)
+
+    @property
+    def why_may_say_yes_evidence(self):
+        return self._load_list(self.why_may_say_yes_evidence_json)
+
+    @property
+    def strength_factors(self):
+        try:
+            result = json.loads(self.strength_factors_json or "{}")
+            return result if isinstance(result, dict) else {}
+        except (TypeError, ValueError):
+            return {}
 
 
 class SponsorshipAsset(db.Model):
@@ -700,6 +854,13 @@ def get_active_initiative():
         session["initiative_id"] = initiative.id
 
     return initiative
+
+
+@app.context_processor
+def inject_customer_brand():
+    """Expose one consistent customer brand to the shared layout."""
+
+    return {"brand_organization": get_active_organization()}
 
 
 def get_org_profile():
@@ -1384,7 +1545,8 @@ def setup():
             return render_template(
                 "setup.html",
                 organization=organization,
-                initiative=initiative
+                initiative=initiative,
+                **_phase1_form_context(organization, initiative),
             )
 
         if not organization:
@@ -1442,6 +1604,7 @@ def setup():
         initiative.needs = request.form.get("needs", "").strip()
         initiative.goals = request.form.get("goals", "").strip()
         initiative.status = "Active"
+        _apply_phase1_context(organization, initiative)
 
         db.session.commit()
 
@@ -1457,7 +1620,8 @@ def setup():
     return render_template(
         "setup.html",
         organization=organization,
-        initiative=initiative
+        initiative=initiative,
+        **_phase1_form_context(organization, initiative),
     )
 
 
@@ -1624,6 +1788,9 @@ def strategy_meeting():
                 "",
             ).strip(),
         }
+        selected_needs = validate_needs(
+            request.form.getlist("sponsorship_needs")
+        )
         deadline_value = request.form.get("deadline", "").strip()
         missing = [
             label
@@ -1631,7 +1798,6 @@ def strategy_meeting():
                 ("sponsorship_goals", "sponsorship goals"),
                 ("audience", "audience"),
                 ("estimated_reach", "estimated reach"),
-                ("needs", "sponsorship needs"),
                 ("goals", "campaign goals"),
                 ("fundraising_target", "fundraising target"),
             )
@@ -1639,6 +1805,8 @@ def strategy_meeting():
         ]
         if not deadline_value:
             missing.append("deadline")
+        if not selected_needs and not fields["needs"]:
+            missing.append("sponsorship needs")
         if fields["audience"] and not audience_age_context_is_clear(
             fields["audience"]
         ):
@@ -1667,10 +1835,12 @@ def strategy_meeting():
                 organization=organization,
                 initiative=initiative,
                 form_values={**fields, "deadline": deadline_value},
+                **_phase1_form_context(organization, initiative),
             )
 
         for name, value in fields.items():
             setattr(initiative, name, value)
+        _apply_phase1_context(organization, initiative)
         initiative.deadline = deadline
         initiative.strategy_meeting_completed_at = (
             datetime.now(UTC).replace(tzinfo=None)
@@ -1702,6 +1872,7 @@ def strategy_meeting():
         organization=organization,
         initiative=initiative,
         form_values=None,
+        **_phase1_form_context(organization, initiative),
     )
 
 

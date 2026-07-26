@@ -460,6 +460,48 @@ a:hover { color: #e3dbff; }
 .activity-list time { color: var(--muted); font-size: 0.76rem; }
 .empty-copy { margin-top: 1rem; color: var(--muted); }
 
+.context-assessment {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: clamp(1rem, 2vw, 1.5rem);
+  background: rgba(9, 25, 45, 0.45);
+}
+
+.needs-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr));
+  gap: 0.65rem;
+}
+
+.needs-option {
+  display: flex;
+  gap: 0.6rem;
+  align-items: center;
+  padding: 0.7rem;
+  border: 1px solid var(--border);
+  border-radius: 0.7rem;
+  cursor: pointer;
+}
+
+.needs-option:has(input:checked) {
+  border-color: var(--purple);
+  background: rgba(124, 92, 255, 0.13);
+}
+
+.recommendation-section {
+  padding-block: 1rem;
+  border-top: 1px solid var(--border);
+}
+
+.copy-button {
+  white-space: nowrap;
+}
+
+.sidebar-brand small {
+  color: var(--muted);
+  font-size: 0.72rem;
+}
+
 .card { padding: 1.25rem; }
 .card p, .lead, .text-muted { color: var(--muted) !important; }
 .action-card, .metric, .message, .work-card {

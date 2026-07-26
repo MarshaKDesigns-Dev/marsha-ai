@@ -1,4 +1,6 @@
-{% extends "base.html" %} {% block content %}
+{% extends "base.html" %}
+{% from "_copy_button.html" import copy_button %}
+{% block content %}
 
 <a href="{{ url_for('prospects', category=category) }}">← Back to prospects</a>
 
@@ -6,25 +8,86 @@
 <h1>{{ p.name }}</h1>
 
 <div class="card p-4 mb-4">
-  <h2>Prospect evidence</h2>
+  <div class="d-flex justify-content-between gap-3 align-items-start">
+    <div>
+      <div class="eyebrow">RECOMMENDATION STRENGTH</div>
+      <h2>{{ prospect_record.recommendation_strength or 'Not yet classified' }}</h2>
+    </div>
+    <span class="score">{{ prospect_record.recommendation_strength_score or prospect_record.ranking_score }}</span>
+  </div>
   <p>
     <a href="{{ prospect_record.website }}" target="_blank" rel="noopener">
       {{ prospect_record.website }}
     </a>
   </p>
-  <p><strong>Why it fits:</strong> {{ prospect_record.why_fits }}</p>
-  <p>
-    <strong>Relevant connection:</strong>
-    {{ prospect_record.relevant_connection }}
-  </p>
-  <p>
-    <strong>Geographic relevance:</strong>
-    {{ prospect_record.geographic_relevance }}
-  </p>
-  <p>
-    <strong>Evidence classification:</strong>
-    {{ prospect_record.evidence_type|replace('_', ' ')|title }}
-  </p>
+
+  <section class="recommendation-section">
+    <div class="section-heading">
+      <h3>Verified Information</h3>
+      {{ copy_button('verified-information', 'Copy verified information') }}
+    </div>
+    <div id="verified-information">
+      {% if prospect_record.verified_information %}
+      <ul>
+        {% for fact in prospect_record.verified_information %}
+        <li>{{ fact.statement }}</li>
+        {% endfor %}
+      </ul>
+      {% else %}
+      <p>No structured verified facts were stored for this earlier recommendation.</p>
+      {% endif %}
+    </div>
+  </section>
+
+  <div class="eyebrow mt-4">MARSHA AI ASSESSMENT</div>
+  <section class="recommendation-section">
+    <div class="section-heading">
+      <h3>Why Recommended</h3>
+      {{ copy_button('why-recommended', 'Copy why recommended') }}
+    </div>
+    <p id="why-recommended">{{ prospect_record.why_recommended or prospect_record.relevant_connection }}</p>
+  </section>
+
+  <section class="recommendation-section">
+    <div class="section-heading">
+      <h3>Why It Fits Your Organization</h3>
+      {{ copy_button('organization-fit', 'Copy organization fit') }}
+    </div>
+    <p id="organization-fit">{{ prospect_record.organization_fit or prospect_record.why_fits }}</p>
+  </section>
+
+  <section class="recommendation-section">
+    <div class="section-heading">
+      <h3>Recommended Ask</h3>
+      {{ copy_button('recommended-ask', 'Copy recommended ask') }}
+    </div>
+    <p id="recommended-ask">
+      {% if prospect_record.contribution_type %}<strong>{{ prospect_record.contribution_type }}:</strong>{% endif %}
+      {{ prospect_record.recommended_ask or 'A specific ask has not been generated for this earlier recommendation.' }}
+    </p>
+  </section>
+
+  <section class="recommendation-section">
+    <div class="section-heading">
+      <h3>Why They May Say Yes</h3>
+      {{ copy_button('why-may-say-yes', 'Copy why they may say yes') }}
+    </div>
+    <p id="why-may-say-yes">{{ prospect_record.why_may_say_yes or 'No evidence-based assessment was stored for this earlier recommendation.' }}</p>
+    {% if prospect_record.why_may_say_yes_evidence %}
+      <p><strong>Supporting evidence:</strong></p>
+      <ul>
+        {% for source_url in prospect_record.why_may_say_yes_evidence %}
+          <li><a href="{{ source_url }}" target="_blank" rel="noopener noreferrer">{{ source_url }}</a></li>
+        {% endfor %}
+      </ul>
+    {% endif %}
+  </section>
+
+  <p><strong>Geographic relevance:</strong> {{ prospect_record.geographic_relevance }}</p>
+  <p><strong>Evidence classification:</strong> {{ prospect_record.evidence_type|replace('_', ' ')|title }}</p>
+  <p><strong>Ranking:</strong> {{ prospect_record.ranking_explanation }}</p>
+
+  <h3>Sources and Evidence</h3>
   {% for source in prospect_record.evidence_sources %}
   <p class="mb-1">
     <a href="{{ source.url }}" target="_blank" rel="noopener">
@@ -96,18 +159,9 @@
       <div class="eyebrow">PERSONALIZED OUTREACH</div>
       <h2>Ready for Your Approval</h2>
 
-      <pre class="message">{{ outreach }}</pre>
+      <pre class="message" id="prospect-outreach">{{ outreach }}</pre>
 
-      <button
-        class="btn btn-gold"
-        onclick="
-          navigator.clipboard.writeText(
-            document.querySelector('.message').innerText,
-          )
-        "
-      >
-        Copy Message
-      </button>
+      {{ copy_button('prospect-outreach', 'Copy message') }}
 
       <form
         method="post"

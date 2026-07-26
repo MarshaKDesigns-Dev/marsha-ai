@@ -21,6 +21,7 @@ from services.openai_generation_timeout import (
     OPENAI_REQUEST_TIMEOUT_SECONDS,
     parse_with_timeout,
 )
+from services.sponsorship_context import format_sponsorship_context
 
 
 DEFAULT_MODEL = os.getenv("OPENAI_MODEL", "gpt-5-mini")
@@ -163,8 +164,12 @@ def build_analysis_prompt(
             "Sponsorship initiative name is required before AI analysis."
         )
 
+    customer_context = format_sponsorship_context(organization, initiative)
     return f"""
 Analyze the following organization and sponsorship initiative.
+
+STRUCTURED CUSTOMER CONTEXT
+{customer_context}
 
 ORGANIZATION PROFILE
 

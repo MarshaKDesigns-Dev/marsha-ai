@@ -130,7 +130,7 @@ def test_dashboard_greeting_falls_back_to_there():
         now=datetime(2026, 7, 24, 20, 0, tzinfo=UTC),
     )
 
-    assert dashboard.greeting == "Good evening, there"
+    assert dashboard.greeting == "Welcome back"
 
 
 def test_failed_work_is_the_highest_priority():
@@ -151,6 +151,9 @@ def test_failed_work_is_the_highest_priority():
 
     assert dashboard.top_priority.title == "Strategy needs attention"
     assert dashboard.top_priority.action.label == "Try again"
+    assert dashboard.top_priority.action.form_data == {
+        "regenerate": "true"
+    }
     assert dashboard.top_priority.supporting_line == "Safe failure."
 
 

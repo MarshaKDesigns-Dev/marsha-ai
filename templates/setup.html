@@ -242,6 +242,8 @@ Organization Setup · Sponsorship Coordinator
               placeholder="What should sponsorship revenue or in-kind support help provide?"
             >{{ initiative.needs if initiative else '' }}</textarea>
 
+            {% include "_sponsorship_context_fields.html" %}
+
             <label class="form-label fw-bold">
               Campaign Goals
             </label>

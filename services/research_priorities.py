@@ -22,6 +22,7 @@ from services.openai_generation_timeout import (
     OPENAI_REQUEST_TIMEOUT_SECONDS,
     parse_with_timeout,
 )
+from services.sponsorship_context import format_sponsorship_context
 from services.sponsor_categories import SponsorCategorySet
 from services.sponsorship_assets import SponsorshipAssetSet
 from services.sponsorship_strategy import SponsorshipStrategy
@@ -378,9 +379,13 @@ def build_research_priority_prompt(
                 "research priority generation."
             ) from exc
 
+    customer_context = format_sponsorship_context(organization, initiative)
     return f"""
 Create a sponsor research priority plan for the organization and initiative
 below.
+
+STRUCTURED CUSTOMER CONTEXT
+{customer_context}
 
 ORGANIZATION
 

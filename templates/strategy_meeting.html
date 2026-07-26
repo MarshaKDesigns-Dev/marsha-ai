@@ -50,9 +50,11 @@
         Sponsorship Needs
       </label>
       <textarea class="form-control mb-3" id="needs" name="needs"
-        rows="4" required
+        rows="4"
         placeholder="Funding, products, services, venue, technology, or other support"
       >{{ values.get('needs', initiative.needs or '') }}</textarea>
+
+      {% include "_sponsorship_context_fields.html" %}
 
       <label class="form-label fw-bold" for="campaign_goals">
         Campaign Goals

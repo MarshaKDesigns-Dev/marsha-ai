@@ -3,6 +3,7 @@
 from sqlalchemy import inspect, text
 
 from app import app, db
+from migrate_phase1_context import run_migration as run_phase1_migration
 
 
 INITIATIVE_COLUMNS = {
@@ -50,3 +51,4 @@ def run_migration() -> None:
 
 if __name__ == "__main__":
     run_migration()
+    run_phase1_migration()

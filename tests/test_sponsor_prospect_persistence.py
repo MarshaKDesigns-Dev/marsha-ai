@@ -13,9 +13,11 @@ from services.sponsor_prospect_persistence import (
 )
 from services.sponsor_research import (
     ConfidenceLevel,
+    ContributionType,
     EvidenceType,
     ProspectEvidence,
     SponsorProspectCandidate,
+    VerifiedFact,
 )
 
 
@@ -27,6 +29,21 @@ def candidate(contact=None):
         industry="Technology",
         why_fits="Its services align with the initiative.",
         relevant_connection="The company has a documented local program.",
+        verified_information=[
+            VerifiedFact(
+                statement="The company documents a local program.",
+                source_url="https://example.com/community",
+            )
+        ],
+        why_recommended="Documented community activity supports consideration.",
+        organization_fit="The local program aligns with the mission.",
+        recommended_ask="Provide technology services for the event.",
+        contribution_type=ContributionType.SERVICE,
+        recommended_need="Marketing",
+        why_may_say_yes="The request aligns with its documented local program.",
+        why_may_say_yes_evidence_urls=[
+            "https://example.com/community",
+        ],
         geographic_relevance="It operates in Durham.",
         evidence_type=EvidenceType.COMMUNITY_INVOLVEMENT,
         evidence_sources=[
@@ -43,6 +60,9 @@ def candidate(contact=None):
         geographic_fit_score=18,
         evidence_score=22,
         contactability_score=10,
+        need_alignment_score=18,
+        industry_alignment_score=13,
+        ask_credibility_score=14,
         contact=contact,
     )
 
@@ -78,6 +98,9 @@ def test_persistence_saves_evidence_and_missing_contact():
     assert isinstance(record, SponsorProspect)
     assert record.company_name == "Example Technology"
     assert "https://example.com/community" in record.evidence_json
+    assert record.why_may_say_yes_evidence == [
+        "https://example.com/community"
+    ]
     assert record.contact_name is None
     session.commit.assert_called_once()
     session.rollback.assert_not_called()

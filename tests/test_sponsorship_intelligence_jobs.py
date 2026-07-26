@@ -110,6 +110,7 @@ def test_terminal_status_clears_active_key_and_preserves_job():
         failed,
         message="Safe failure.",
         error_code="generation_failed",
+        failure_details={"exception_type": "ValidationError"},
         session=session,
         now=NOW,
     )
@@ -119,6 +120,9 @@ def test_terminal_status_clears_active_key_and_preserves_job():
     assert failed.status == jobs.STATUS_FAILED
     assert failed.active_key is None
     assert failed.message == "Safe failure."
+    assert failed.failure_details_json == (
+        '{"exception_type": "ValidationError"}'
+    )
     assert session.delete.call_count == 0
 
 

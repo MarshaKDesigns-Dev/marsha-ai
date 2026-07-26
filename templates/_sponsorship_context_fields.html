@@ -1,0 +1,95 @@
+<section class="context-assessment" aria-labelledby="needs-assessment-heading">
+  <div class="eyebrow">SPONSORSHIP NEEDS ASSESSMENT</div>
+  <h2 id="needs-assessment-heading">What support would make this initiative possible?</h2>
+  <p>Select every contribution you can credibly use. These answers guide strategy and sponsor research.</p>
+
+  <div class="needs-grid mb-3">
+    {% for need in sponsorship_need_options %}
+    <label class="needs-option">
+      <input type="checkbox" name="sponsorship_needs" value="{{ need }}"
+        {% if need in selected_sponsorship_needs %}checked{% endif %}>
+      <span>{{ need }}</span>
+    </label>
+    {% endfor %}
+  </div>
+
+  <label class="form-label fw-bold" for="sponsorship_needs_other">Other Needs</label>
+  <input class="form-control mb-3" id="sponsorship_needs_other"
+    name="sponsorship_needs_other"
+    value="{{ initiative.sponsorship_needs_other if initiative and initiative.sponsorship_needs_other else '' }}"
+    placeholder="Describe a need not listed above">
+
+  <label class="form-label fw-bold" for="sponsorship_needs_notes">Needs Notes</label>
+  <textarea class="form-control mb-3" id="sponsorship_needs_notes"
+    name="sponsorship_needs_notes" rows="3"
+    placeholder="Add quantities, timing, budget, or delivery details."
+  >{{ initiative.sponsorship_needs_notes if initiative and initiative.sponsorship_needs_notes else '' }}</textarea>
+
+  <label class="form-label fw-bold" for="desired_sponsor_categories">
+    Desired Sponsor Categories
+  </label>
+  <textarea class="form-control mb-3" id="desired_sponsor_categories"
+    name="desired_sponsor_categories" rows="3"
+    placeholder="One category per line"
+  >{{ desired_categories_value }}</textarea>
+
+  <label class="form-label fw-bold" for="dream_sponsors">Dream Sponsors</label>
+  <p class="form-text">If you could partner with anyone, who would you most like to work with? Dream sponsors guide research but do not guarantee a recommendation.</p>
+  <textarea class="form-control mb-3" id="dream_sponsors"
+    name="dream_sponsors" rows="3" placeholder="One organization per line"
+  >{{ dream_sponsors_value }}</textarea>
+
+  <div class="row g-3 mb-3">
+    <div class="col-md-7">
+      <label class="form-label fw-bold" for="geographic_scope">Sponsor Search Area</label>
+      <select class="form-select" id="geographic_scope" name="geographic_scope">
+        <option value="">Use organization location</option>
+        {% for scope in geographic_scope_options %}
+        <option value="{{ scope }}"
+          {% if initiative and initiative.geographic_scope == scope %}selected{% endif %}>
+          {{ scope }}
+        </option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="col-md-5">
+      <label class="form-label fw-bold" for="geographic_radius_miles">Radius</label>
+      <select class="form-select" id="geographic_radius_miles"
+        name="geographic_radius_miles">
+        <option value="">Not radius-based</option>
+        {% for radius in geographic_radius_options %}
+        <option value="{{ radius }}"
+          {% if initiative and initiative.geographic_radius_miles == radius %}selected{% endif %}>
+          {{ radius }} miles
+        </option>
+        {% endfor %}
+      </select>
+    </div>
+  </div>
+</section>
+
+<section class="context-assessment mt-4" aria-labelledby="relationship-heading">
+  <div class="eyebrow">RELATIONSHIP CONTEXT</div>
+  <h2 id="relationship-heading">Who do you already know or need to avoid?</h2>
+  <p>Enter one business or organization per line.</p>
+
+  <label class="form-label fw-bold" for="current_sponsors">Current Sponsors</label>
+  <textarea class="form-control mb-3" id="current_sponsors"
+    name="current_sponsors" rows="3">{{ current_sponsors_value }}</textarea>
+
+  <label class="form-label fw-bold" for="existing_relationships">Existing Relationships</label>
+  <textarea class="form-control mb-3" id="existing_relationships"
+    name="existing_relationships" rows="3">{{ existing_relationships_value }}</textarea>
+
+  <label class="form-label fw-bold" for="businesses_already_contacted">Businesses Already Contacted</label>
+  <textarea class="form-control mb-3" id="businesses_already_contacted"
+    name="businesses_already_contacted" rows="3">{{ already_contacted_value }}</textarea>
+
+  <label class="form-label fw-bold" for="businesses_never_contact">Businesses Never Contact</label>
+  <textarea class="form-control mb-3" id="businesses_never_contact"
+    name="businesses_never_contact" rows="3"
+    aria-describedby="never-contact-help">{{ never_contact_value }}</textarea>
+  <p class="form-text" id="never-contact-help">
+    Marsha AI will deterministically exclude these organizations from new recommendations.
+  </p>
+</section>

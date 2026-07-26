@@ -13,6 +13,7 @@ from services.sponsor_eligibility import EligibilityFacts
 from services.sponsor_eligibility_engine import SponsorEligibilityEngine
 from services.sponsor_research import (
     ConfidenceLevel,
+    ContributionType,
     EvidenceType,
     NoCredibleProspectsError,
     ProspectEvidence,
@@ -21,6 +22,7 @@ from services.sponsor_research import (
     SponsorResearchResult,
     SponsorResearchError,
     SponsorResearchUnavailableError,
+    VerifiedFact,
     collect_web_search_source_urls,
     research_sponsor_category,
     validate_researched_prospects,
@@ -54,6 +56,21 @@ def candidate(
         industry=industry,
         why_fits="Its services align with the initiative.",
         relevant_connection="The company has a documented local program.",
+        verified_information=[
+            VerifiedFact(
+                statement="The company documents a local program.",
+                source_url=evidence_url,
+            )
+        ],
+        why_recommended="Documented community activity supports consideration.",
+        organization_fit="The local program aligns with the mission.",
+        recommended_ask="Provide technology services for the event.",
+        contribution_type=ContributionType.SERVICE,
+        recommended_need="Marketing",
+        why_may_say_yes="The request aligns with its documented local program.",
+        why_may_say_yes_evidence_urls=[
+            evidence_url,
+        ],
         geographic_relevance="It operates in Durham.",
         evidence_type=EvidenceType.COMMUNITY_INVOLVEMENT,
         evidence_sources=[
@@ -71,6 +88,9 @@ def candidate(
         geographic_fit_score=18,
         evidence_score=22,
         contactability_score=10,
+        need_alignment_score=18,
+        industry_alignment_score=13,
+        ask_credibility_score=14,
         contact=contact,
     )
 
@@ -94,6 +114,9 @@ def test_real_research_schema_requires_public_evidence():
             geographic_fit_score=1,
             evidence_score=1,
             contactability_score=0,
+            need_alignment_score=1,
+            industry_alignment_score=1,
+            ask_credibility_score=1,
         )
 
 
@@ -118,6 +141,42 @@ def test_missing_contact_is_valid_and_explicit():
 
     assert accepted == [prospect]
     assert accepted[0].contact is None
+
+
+def test_recommendation_strength_is_calculated_from_defined_factors():
+    prospect = candidate()
+
+    assert prospect.recommendation_strength_score == 90
+    assert prospect.recommendation_strength.value == "High"
+    assert prospect.strength_factors == {
+        "sponsorship_need_alignment": 18,
+        "industry_alignment": 13,
+        "mission_and_audience_alignment": 18,
+        "geographic_relevance": 14,
+        "evidence_quality_and_recency": 13,
+        "recommended_ask_credibility": 14,
+    }
+
+
+def test_verified_information_must_reference_candidate_evidence():
+    values = candidate().model_dump()
+    values["verified_information"] = [
+        {
+            "statement": "Unsupported fact",
+            "source_url": "https://other.example/fact",
+        }
+    ]
+    with pytest.raises(ValidationError):
+        SponsorProspectCandidate.model_validate(values)
+
+
+def test_why_may_say_yes_must_reference_candidate_evidence():
+    values = candidate().model_dump()
+    values["why_may_say_yes_evidence_urls"] = [
+        "https://other.example/claim"
+    ]
+    with pytest.raises(ValidationError):
+        SponsorProspectCandidate.model_validate(values)
 
 
 def test_duplicate_websites_are_deduplicated_to_best_rank():

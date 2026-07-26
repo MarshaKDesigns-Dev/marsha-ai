@@ -51,6 +51,24 @@ from services.sponsorship_strategy import (
 class SponsorshipIntelligenceError(RuntimeError):
     """Raised when the sponsorship intelligence workflow cannot complete."""
 
+    def __init__(
+        self,
+        message: str,
+        *,
+        generation_step: str | None = None,
+        error_code: str = "generation_failed",
+        failure_details: dict[str, Any] | None = None,
+        user_message: str | None = None,
+    ) -> None:
+        super().__init__(message)
+        self.generation_step = generation_step
+        self.error_code = error_code
+        self.failure_details = failure_details or {}
+        self.user_message = (
+            user_message
+            or "The strategy workflow stopped unexpectedly. Please try again."
+        )
+
 
 class SponsorshipIntelligenceTimeoutError(SponsorshipIntelligenceError):
     """Raised when an intelligence worker exceeds its API deadline."""
@@ -60,6 +78,82 @@ class SponsorshipIntelligenceTimeoutError(SponsorshipIntelligenceError):
         self.generation_step = timeout.generation_step
         self.step_elapsed_seconds = timeout.step_elapsed_seconds
         self.workflow_elapsed_seconds = timeout.workflow_elapsed_seconds
+
+
+def _classify_failure(
+    exc: Exception,
+    generation_step: str | None,
+) -> tuple[str, str, dict[str, Any]]:
+    """Classify a chained exception without exposing provider content."""
+
+    chain = []
+    current: BaseException | None = exc
+    while current is not None and current not in chain:
+        chain.append(current)
+        current = current.__cause__ or current.__context__
+
+    names = {type(item).__name__ for item in chain}
+    details: dict[str, Any] = {
+        "exception_type": type(exc).__name__,
+    }
+    for item in chain:
+        request_id = getattr(item, "request_id", None)
+        status_code = getattr(item, "status_code", None)
+        if request_id:
+            details["provider_request_id"] = str(request_id)
+        if isinstance(status_code, int):
+            details["provider_http_status"] = status_code
+
+    if "RateLimitError" in names:
+        return (
+            "provider_rate_limit",
+            "The AI service rate limit was reached. Please try again shortly.",
+            details,
+        )
+    if names & {"AuthenticationError", "PermissionDeniedError"}:
+        return (
+            "provider_configuration_error",
+            "The AI service is not configured for this request. Contact support.",
+            details,
+        )
+    if names & {"APIConnectionError", "InternalServerError"}:
+        return (
+            "provider_unavailable",
+            "The AI service was temporarily unavailable. Please try again.",
+            details,
+        )
+    if names & {
+        "ContentFilterFinishReasonError",
+        "SafetyRefusalError",
+    }:
+        return (
+            "provider_safety_refusal",
+            "The AI service declined this request for safety reasons.",
+            details,
+        )
+    if "ValidationError" in names:
+        return (
+            "schema_validation_failed",
+            "The AI response did not match the required structure.",
+            details,
+        )
+    if "ResearchPriorityGenerationError" in names:
+        return (
+            "research_priorities_invalid",
+            "Research priorities did not pass the required evidence and reference checks.",
+            details,
+        )
+    if any(name.endswith("GenerationError") for name in names):
+        return (
+            "structured_output_invalid",
+            "The AI response did not pass the required validation checks.",
+            details,
+        )
+    return (
+        "generation_failed",
+        "The strategy workflow stopped unexpectedly. Please try again.",
+        details,
+    )
 
 
 class SponsorshipIntelligenceResult(BaseModel):
@@ -170,7 +264,9 @@ def generate_sponsorship_intelligence(
         if lifecycle_logger is not None:
             lifecycle_logger(event)
 
+    current_step: str | None = None
     try:
+        current_step = "organization_analysis"
         log_lifecycle("organization_analysis_started")
         analysis_options = {
             "client": client,
@@ -187,6 +283,7 @@ def generate_sponsorship_intelligence(
         )
         log_lifecycle("organization_analysis_completed")
 
+        current_step = "sponsorship_strategy"
         log_lifecycle("strategy_generation_started")
         strategy = sponsorship_strategy_worker(
             organization,
@@ -199,6 +296,7 @@ def generate_sponsorship_intelligence(
         )
         log_lifecycle("strategy_generation_completed")
 
+        current_step = "sponsor_categories"
         log_lifecycle("sponsor_categories_started")
         categories = sponsor_category_worker(
             organization,
@@ -212,6 +310,7 @@ def generate_sponsorship_intelligence(
         )
         log_lifecycle("sponsor_categories_completed")
 
+        current_step = "sponsorship_assets"
         log_lifecycle("sponsorship_assets_started")
         assets = sponsorship_asset_worker(
             organization,
@@ -226,6 +325,7 @@ def generate_sponsorship_intelligence(
         )
         log_lifecycle("sponsorship_assets_completed")
 
+        current_step = "sponsor_eligibility"
         log_lifecycle("sponsor_eligibility_started")
         eligibility = sponsor_eligibility_engine(
             organization,
@@ -237,6 +337,7 @@ def generate_sponsorship_intelligence(
         )
         log_lifecycle("sponsor_eligibility_completed")
 
+        current_step = "research_priorities"
         log_lifecycle("research_priorities_started")
         research_priorities = research_priority_worker(
             organization,
@@ -266,10 +367,22 @@ def generate_sponsorship_intelligence(
 
     except ValidationError as exc:
         raise SponsorshipIntelligenceError(
-            "The sponsorship intelligence result could not be validated."
+            "The AI response did not match the required structure.",
+            generation_step=current_step,
+            error_code="schema_validation_failed",
+            failure_details={"exception_type": type(exc).__name__},
+            user_message="The AI response did not match the required structure.",
         ) from exc
 
     except Exception as exc:
+        error_code, safe_message, details = _classify_failure(
+            exc,
+            current_step,
+        )
         raise SponsorshipIntelligenceError(
-            "The sponsorship intelligence workflow could not be completed."
+            safe_message,
+            generation_step=current_step,
+            error_code=error_code,
+            failure_details=details,
+            user_message=safe_message,
         ) from exc

@@ -62,6 +62,8 @@ class GenerationResult:
     record_id: int | None = None
     created_at: datetime | None = None
     generation_step: str | None = None
+    error_code: str | None = None
+    failure_details: dict[str, Any] = field(default_factory=dict)
 
 
 OrchestratorCallable = Callable[..., SponsorshipIntelligenceResult]
@@ -242,15 +244,15 @@ def generate_workspace_intelligence(
             errors=[STATUS_GENERATION_TIMEOUT],
             generation_step=exc.generation_step,
         )
-    except SponsorshipIntelligenceError:
+    except SponsorshipIntelligenceError as exc:
         return GenerationResult(
             success=False,
             status=STATUS_GENERATION_FAILED,
-            message=(
-                "Sponsorship intelligence could not be generated. "
-                "Please try again."
-            ),
+            message=exc.user_message,
             errors=[STATUS_GENERATION_FAILED],
+            generation_step=exc.generation_step,
+            error_code=exc.error_code,
+            failure_details=exc.failure_details,
         )
 
     try:

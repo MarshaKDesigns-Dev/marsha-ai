@@ -337,7 +337,7 @@ def test_orchestrator_caps_request_timeout_by_remaining_budget(
     strategy_worker = Mock(side_effect=RuntimeError("stop after first"))
     clock_values = iter([0.0, 90.0, 90.0])
 
-    with pytest.raises(SponsorshipIntelligenceError):
+    with pytest.raises(SponsorshipIntelligenceError) as error:
         generate_sponsorship_intelligence(
             organization,
             initiative,
@@ -411,7 +411,7 @@ def test_worker_failure_is_wrapped(
 
     with pytest.raises(
         SponsorshipIntelligenceError,
-        match="workflow could not be completed",
+        match="strategy workflow stopped unexpectedly",
     ):
         generate_sponsorship_intelligence(
             organization,
@@ -440,7 +440,7 @@ def test_workflow_stops_after_failure(
     asset_worker = Mock()
     eligibility_engine = Mock()
 
-    with pytest.raises(SponsorshipIntelligenceError):
+    with pytest.raises(SponsorshipIntelligenceError) as error:
         generate_sponsorship_intelligence(
             organization,
             initiative,
@@ -456,6 +456,8 @@ def test_workflow_stops_after_failure(
     category_worker.assert_not_called()
     asset_worker.assert_not_called()
     eligibility_engine.assert_not_called()
+    assert error.value.generation_step == "sponsorship_strategy"
+    assert error.value.error_code == "generation_failed"
 
 
 def test_invalid_worker_result_is_rejected(
@@ -471,7 +473,7 @@ def test_invalid_worker_result_is_rejected(
 
     with pytest.raises(
         SponsorshipIntelligenceError,
-        match="could not be validated",
+        match="required structure",
     ):
         generate_sponsorship_intelligence(
             organization,

@@ -92,14 +92,13 @@
       <div class="dashboard-lower-grid">
         <section class="dashboard-card next-card" aria-labelledby="next-heading">
           <p class="dashboard-kicker">WHAT’S NEXT</p>
-          <h2 id="next-heading">{{ dashboard.top_priority.title }}</h2>
-          <p>{{ dashboard.top_priority.message }}</p>
+          <h2 id="next-heading">{{ dashboard.next_title }}</h2>
+          <p>{{ dashboard.next_message }}</p>
           {% if dashboard.prospect_count %}
           <p class="count-highlight">{{ dashboard.prospect_count }} sponsor prospects ready</p>
           {% elif dashboard.approved_asset_count %}
           <p class="count-highlight">{{ dashboard.approved_asset_count }} sponsorship assets approved</p>
           {% endif %}
-          {{ dashboard_action(dashboard.top_priority.action, 'btn-primary w-100') }}
         </section>
 
         <section class="dashboard-card initiative-card" aria-labelledby="initiative-heading">

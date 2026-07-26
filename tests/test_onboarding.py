@@ -25,7 +25,10 @@ def test_navigation_exposes_core_product_pages():
 
 
 def test_setup_page_collects_required_operating_context():
-    template = read_text("templates/setup.html")
+    template = (
+        read_text("templates/setup.html")
+        + read_text("templates/_sponsorship_context_fields.html")
+    )
 
     required_fields = [
         'name="organization_name"',
@@ -39,6 +42,16 @@ def test_setup_page_collects_required_operating_context():
         'name="deadline"',
         'name="audience"',
         'name="needs"',
+        'name="sponsorship_needs"',
+        'name="sponsorship_needs_other"',
+        'name="sponsorship_needs_notes"',
+        'name="geographic_scope"',
+        'name="geographic_radius_miles"',
+        'name="dream_sponsors"',
+        'name="current_sponsors"',
+        'name="existing_relationships"',
+        'name="businesses_already_contacted"',
+        'name="businesses_never_contact"',
         'name="goals"',
     ]
 

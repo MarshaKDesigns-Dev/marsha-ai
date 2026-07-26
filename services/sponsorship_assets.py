@@ -22,6 +22,7 @@ from services.openai_generation_timeout import (
     parse_with_timeout,
 )
 from services.sponsor_categories import SponsorCategorySet
+from services.sponsorship_context import format_sponsorship_context
 from services.sponsorship_strategy import SponsorshipStrategy
 
 
@@ -325,8 +326,12 @@ def build_asset_prompt(
                 "asset generation."
             ) from exc
 
+    customer_context = format_sponsorship_context(organization, initiative)
     return f"""
 Generate sponsorship assets for the organization and initiative below.
+
+STRUCTURED CUSTOMER CONTEXT
+{customer_context}
 
 ORGANIZATION
 

@@ -20,6 +20,7 @@ from services.openai_generation_timeout import (
     OPENAI_REQUEST_TIMEOUT_SECONDS,
     parse_with_timeout,
 )
+from services.sponsorship_context import format_sponsorship_context
 
 
 DEFAULT_MODEL = os.getenv("OPENAI_MODEL", "gpt-5-mini")
@@ -227,8 +228,12 @@ def build_strategy_prompt(
                 "strategy generation."
             ) from exc
 
+    customer_context = format_sponsorship_context(organization, initiative)
     return f"""
 Develop a sponsorship strategy for the organization and initiative below.
+
+STRUCTURED CUSTOMER CONTEXT
+{customer_context}
 
 ORGANIZATION
 

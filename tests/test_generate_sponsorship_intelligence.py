@@ -196,6 +196,26 @@ def test_generation_failure_returns_controlled_result():
     assert "sensitive" not in result.message.lower()
 
 
+def test_generation_failure_preserves_safe_stage_and_diagnostic_code():
+    def failing_orchestrator(org, init, *, client=None, model=None):
+        raise SponsorshipIntelligenceError(
+            "Research priorities did not pass validation.",
+            generation_step="research_priorities",
+            error_code="research_priorities_invalid",
+            failure_details={"exception_type": "ValidationError"},
+        )
+
+    deps, _ = make_deps(orchestrator=failing_orchestrator)
+
+    result = generate_workspace_intelligence(1, 10, **deps)
+
+    assert result.generation_step == "research_priorities"
+    assert result.error_code == "research_priorities_invalid"
+    assert result.failure_details == {
+        "exception_type": "ValidationError"
+    }
+
+
 def test_generation_timeout_returns_safe_result_without_persistence():
     def timing_out_orchestrator(org, init, *, client=None, model=None):
         calls["orchestrator"] += 1
