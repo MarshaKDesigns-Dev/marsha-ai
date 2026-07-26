@@ -35,11 +35,11 @@ def test_navigation_labels_workspace_as_dashboard():
     )[0]
 
     workspace_link = template.split(
-        "url_for('workspace')",
+        'aria-current="page"',
         1,
     )[1].split("</a>", 1)[0]
     assert "Dashboard" in workspace_link
-    assert 'aria-label="Workspace Dashboard"' in workspace_link
+    assert "sidebar-link" in template
 
 
 def test_dashboard_template_keeps_worker_and_summary_sections_compact():
@@ -53,4 +53,17 @@ def test_dashboard_template_keeps_worker_and_summary_sections_compact():
     assert "dashboard.top_priority.supporting_line" in template
     assert "Sponsors Secured" in template
     assert "organization.updated_at" in template
-    assert "row-cols-2 row-cols-md-3 row-cols-xl-6" in template
+    assert "workflow-progress" in template
+    assert "dashboard-grid" in template
+    assert "manual-status-refresh" in template
+
+
+def test_navigation_marks_unavailable_features_as_coming_soon():
+    template = app.jinja_loader.get_source(
+        app.jinja_env,
+        "base.html",
+    )[0]
+
+    assert template.count("Coming soon") == 5
+    assert 'aria-disabled="true"' in template
+    assert "sidebar-toggle" in template

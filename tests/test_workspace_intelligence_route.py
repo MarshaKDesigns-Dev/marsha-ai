@@ -373,6 +373,73 @@ def test_workspace_builds_dashboard_from_existing_records(monkeypatch):
     assert build_arguments["opportunities"] is opportunities
 
 
+@pytest.mark.parametrize(
+    ("job_status", "terminal"),
+    [
+        ("pending", False),
+        ("processing", False),
+        ("completed", True),
+        ("failed", True),
+    ],
+)
+def test_workspace_status_reports_job_terminal_state(
+    monkeypatch,
+    job_status,
+    terminal,
+):
+    organization = SimpleNamespace(id=1)
+    initiative = SimpleNamespace(id=2, organization_id=1)
+    job = SimpleNamespace(status=job_status, message="Safe status message.")
+    monkeypatch.setattr(
+        app_module,
+        "get_active_organization",
+        lambda: organization,
+    )
+    monkeypatch.setattr(
+        app_module,
+        "get_active_initiative",
+        lambda: initiative,
+    )
+    monkeypatch.setattr(
+        app_module,
+        "get_workspace_intelligence_job",
+        lambda *args: job,
+    )
+
+    response = app_module.app.test_client().get("/workspace/status")
+    payload = response.get_json()
+
+    assert response.status_code == 200
+    assert payload["status"] == job_status
+    assert payload["terminal"] is terminal
+    assert payload["refresh_url"] == "/workspace"
+    if job_status == "failed":
+        assert payload["message"] == "Safe status message."
+
+
+def test_workspace_status_redirects_polling_to_setup_without_records(
+    monkeypatch,
+):
+    monkeypatch.setattr(
+        app_module,
+        "get_active_organization",
+        lambda: None,
+    )
+    monkeypatch.setattr(
+        app_module,
+        "get_active_initiative",
+        lambda: None,
+    )
+
+    response = app_module.app.test_client().get("/workspace/status")
+
+    assert response.get_json() == {
+        "status": "setup_required",
+        "terminal": True,
+        "refresh_url": "/setup",
+    }
+
+
 def test_workspace_template_is_dashboard_without_long_form_reports():
     template = open(
         "templates/workspace.html",
@@ -382,8 +449,9 @@ def test_workspace_template_is_dashboard_without_long_form_reports():
     assert "MARSHA AI OFFICE" in template
     assert "TOP PRIORITY" in template
     assert "Your Team’s Status" in template
-    assert "Strategy Worker" not in template
     assert "dashboard.workers" in template
+    assert "setInterval(checkStatus, 5000)" in template
+    assert "manual-status-refresh" in template
     assert "WORKFLOW" in template
     assert "ACTIVE INITIATIVE" in template
     assert "RECENT ACTIVITY" in template
@@ -394,18 +462,11 @@ def test_workspace_template_is_dashboard_without_long_form_reports():
     assert "organization_analysis" not in template
     assert "sponsorship_strategy" not in template
     assert "categories" not in template
-    assert "assets" not in template
+    assert "{% for asset" not in template
 
-    sections = [
-        "TOP PRIORITY",
-        "Your Team’s Status",
-        "WORKFLOW",
-        "ACTIVE INITIATIVE",
-        "RECENT ACTIVITY",
-        "ORGANIZATION SETUP",
-    ]
-    positions = [template.index(section) for section in sections]
-    assert positions == sorted(positions)
+    assert "dashboard-grid" in template
+    assert "dashboard-main-column" in template
+    assert "dashboard-side-column" in template
 
 
 @pytest.mark.parametrize(

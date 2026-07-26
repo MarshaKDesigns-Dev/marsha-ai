@@ -4,7 +4,7 @@ import os, json, smtplib, sys
 from email.message import EmailMessage
 from datetime import UTC, date, datetime, timedelta
 from time import monotonic
-from flask import render_template, request, redirect, url_for, flash, session
+from flask import jsonify, render_template, request, redirect, url_for, flash, session
 from openai import OpenAI
 from application import app
 from extensions import db
@@ -1551,6 +1551,44 @@ def workspace():
     )
 
 
+@app.route("/workspace/status")
+def workspace_status():
+    """Return the active intelligence-job state for dashboard polling."""
+
+    organization = get_active_organization()
+    initiative = get_active_initiative()
+    if (
+        organization is None
+        or initiative is None
+        or initiative.organization_id != organization.id
+    ):
+        return jsonify(
+            {
+                "status": "setup_required",
+                "terminal": True,
+                "refresh_url": url_for("setup"),
+            }
+        )
+
+    job = get_workspace_intelligence_job(organization, initiative)
+    status = (
+        (getattr(job, "status", "") or "").lower()
+        if job is not None
+        else "not_started"
+    )
+    response = {
+        "status": status,
+        "terminal": status not in {"pending", "processing"},
+        "refresh_url": url_for("workspace"),
+    }
+    if status == "failed":
+        response["message"] = (
+            getattr(job, "message", None)
+            or "Strategy generation needs attention."
+        )
+    return jsonify(response)
+
+
 @app.route("/strategy-meeting", methods=["GET", "POST"])
 def strategy_meeting():
     """Collect the operating context required by the Strategy Worker."""
@@ -1710,11 +1748,18 @@ def sponsorship_asset_review():
         )
         return redirect(url_for("strategy_meeting"))
 
+    assets = get_sponsorship_assets(organization, initiative)
+    approved_asset_count = sum(
+        getattr(asset, "is_active", True)
+        and getattr(asset, "approval_status", "Pending") == "Approved"
+        for asset in assets
+    )
     return render_template(
         "sponsorship_assets_review.html",
         organization=organization,
         initiative=initiative,
-        assets=get_sponsorship_assets(organization, initiative),
+        assets=assets,
+        approved_asset_count=approved_asset_count,
     )
 
 

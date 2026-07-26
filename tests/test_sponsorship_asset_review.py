@@ -47,6 +47,45 @@ def test_asset_review_renders_pending_generated_assets(monkeypatch):
     assert response.status_code == 200
     assert b"Education Partner" in response.data
     assert b"Pending" in response.data
+    assert b"0 assets approved" in response.data
+    assert b"Return to Dashboard" in response.data
+    assert b"Each Approve or Reject action saves immediately" in response.data
+
+
+def test_asset_review_enables_continuation_after_an_approval(monkeypatch):
+    _configure(monkeypatch)
+    approved = SimpleNamespace(
+        id=3,
+        name="Education Partner",
+        description="Supports workshops",
+        value="Community visibility",
+        sponsor_value="Community visibility",
+        capacity="2",
+        approval_status="Approved",
+        is_active=True,
+    )
+    monkeypatch.setattr(
+        app_module,
+        "get_sponsorship_intelligence",
+        lambda *args: SimpleNamespace(id=4),
+    )
+    monkeypatch.setattr(
+        app_module,
+        "get_sponsorship_assets",
+        lambda *args: [approved],
+    )
+
+    response = app_module.app.test_client().get("/workspace/assets")
+    html = response.get_data(as_text=True)
+
+    assert response.status_code == 200
+    assert "1 asset approved" in html
+    assert 'href="/workspace"' in html
+    assert "Continue to Sponsor Research" in html
+    assert (
+        '<a class="btn btn-primary btn-lg" href="/workspace">'
+        in html
+    )
 
 
 def test_direct_status_string_cannot_bypass_controlled_actions(monkeypatch):

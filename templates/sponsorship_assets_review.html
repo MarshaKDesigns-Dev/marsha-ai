@@ -12,6 +12,24 @@
   </p>
 </header>
 
+<section class="card p-4 mb-4" aria-labelledby="approval-summary-heading">
+  <div class="d-flex flex-wrap justify-content-between align-items-center gap-3">
+    <div>
+      <div class="eyebrow">REVIEW PROGRESS</div>
+      <h2 class="h4 mb-1" id="approval-summary-heading">
+        {{ approved_asset_count }} asset{% if approved_asset_count != 1 %}s{% endif %} approved
+      </h2>
+      <p class="mb-0">
+        Each Approve or Reject action saves immediately. You only need one
+        approved active asset to continue.
+      </p>
+    </div>
+    <a class="btn btn-outline-light" href="{{ url_for('workspace') }}">
+      Return to Dashboard
+    </a>
+  </div>
+</section>
+
 {% if assets %}
 <div class="row g-3 mb-4">
   {% for asset in assets %}
@@ -114,5 +132,32 @@
     </div>
     <button class="btn btn-dark mt-3" type="submit">Add Asset</button>
   </form>
+</section>
+
+<section class="card p-4 mt-4" aria-labelledby="asset-next-step-heading">
+  <div class="d-flex flex-wrap justify-content-between align-items-center gap-3">
+    <div>
+      <div class="eyebrow">NEXT STEP</div>
+      <h2 class="h4 mb-1" id="asset-next-step-heading">
+        Continue your sponsorship workflow
+      </h2>
+      <p class="mb-0">
+        {% if approved_asset_count %}
+        Your approved assets are saved and sponsor research is ready.
+        {% else %}
+        Approve at least one active sponsorship asset to unlock sponsor research.
+        {% endif %}
+      </p>
+    </div>
+    {% if approved_asset_count %}
+    <a class="btn btn-primary btn-lg" href="{{ url_for('workspace') }}">
+      Continue to Sponsor Research
+    </a>
+    {% else %}
+    <button class="btn btn-primary btn-lg" type="button" disabled>
+      Continue to Sponsor Research
+    </button>
+    {% endif %}
+  </div>
 </section>
 {% endblock %}

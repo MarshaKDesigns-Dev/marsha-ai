@@ -84,6 +84,9 @@ class DashboardView:
     recent_activity: tuple[DashboardActivity, ...]
     pipeline_count: int
     sponsors_secured: int
+    approved_asset_count: int
+    prospect_count: int
+    job_status: str
 
 
 def _first_name(sender_name: str | None) -> str:
@@ -386,6 +389,27 @@ def _top_priority(
             ),
         )
 
+    if prospects and not opportunities:
+        category = getattr(prospects[0], "category_slug", None)
+        return DashboardPriority(
+            title="Review Sponsor Opportunities",
+            message=(
+                f"Your Research Worker found {len(prospects)} potential "
+                f"sponsor candidate{'' if len(prospects) == 1 else 's'} "
+                "for review."
+            ),
+            level="primary",
+            action=(
+                DashboardAction(
+                    "View sponsors",
+                    "prospects",
+                    route_params={"category": category},
+                )
+                if category
+                else DashboardAction("Open pipeline", "show_pipeline")
+            ),
+        )
+
     if opportunities:
         return DashboardPriority(
             title="Review your active pipeline",
@@ -398,10 +422,10 @@ def _top_priority(
         )
 
     return DashboardPriority(
-        title="No action required",
-        message="Your AI team is ready when you are.",
+        title="Your sponsorship workflow is up to date",
+        message="Review the pipeline for current sponsor activity.",
         level="success",
-        action=DashboardAction(),
+        action=DashboardAction("Open pipeline", "show_pipeline"),
     )
 
 
@@ -752,4 +776,7 @@ def build_dashboard(
         ),
         pipeline_count=len(opportunity_list),
         sponsors_secured=sponsors_secured,
+        approved_asset_count=approved_asset_count,
+        prospect_count=len(prospect_list),
+        job_status=job_status,
     )

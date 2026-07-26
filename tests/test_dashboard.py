@@ -244,7 +244,7 @@ def test_research_ready_precedes_pipeline_review():
     assert dashboard.top_priority.action.method == "POST"
 
 
-def test_pipeline_review_and_no_action_fallbacks():
+def test_pipeline_review_and_prospect_review_fallbacks():
     with_pipeline = build(
         prospects=[prospect()],
         opportunities=[opportunity(stage="Sent")],
@@ -256,7 +256,8 @@ def test_pipeline_review_and_no_action_fallbacks():
     )
 
     assert with_pipeline.top_priority.title == "Review your active pipeline"
-    assert no_action.top_priority.title == "No action required"
+    assert no_action.top_priority.title == "Review Sponsor Opportunities"
+    assert no_action.top_priority.action.label == "View sponsors"
 
 
 def test_recent_activity_uses_existing_record_timestamps():
