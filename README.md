@@ -292,12 +292,28 @@ Never commit `.env` or production credentials to Git.
 
 ---
 
-## Run the Application
+## Run the Application Locally
 
-With the virtual environment activated:
+Use the repository startup script. It protects unrelated port-5000 listeners,
+stops confirmed repository-owned Flask parent, child, or orphan processes,
+applies the additive local migrations, disables Flask auto-reload, starts one
+local listener, and verifies port ownership.
 
 ```powershell
-python app.py
+powershell -ExecutionPolicy Bypass -File .\scripts\start_local.ps1
+```
+
+Verify the imported application, routes, schema, form contract, and local HTTP
+responses without submitting forms or changing application records:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\verify_local.ps1
+```
+
+Stop repository-owned Flask processes and verify that port 5000 is free:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\stop_local.ps1
 ```
 
 Default local address:
@@ -305,6 +321,11 @@ Default local address:
 ```text
 http://127.0.0.1:5000
 ```
+
+Do not use `python app.py` for routine local testing. That entry point enables
+Flask debug mode and its reloader, which can leave a child process serving
+stale Python code after the parent is stopped. Production Gunicorn startup is
+unchanged.
 
 ---
 

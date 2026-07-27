@@ -3551,8 +3551,9 @@ def update_opportunity(opportunity_id):
     return redirect(url_for("opportunity_detail", opportunity_id=opp.id))
 
 
-with app.app_context():
-    db.create_all()
+if os.getenv("MARSHA_SKIP_CREATE_ALL") != "1":
+    with app.app_context():
+        db.create_all()
 
 
 if __name__ == "__main__":
