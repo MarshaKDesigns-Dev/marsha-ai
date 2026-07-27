@@ -229,13 +229,24 @@ def test_generation_started_message_renders_after_redirect(monkeypatch):
         ),
     )
     opportunity_query = MagicMock()
-    opportunity_query.order_by.return_value.all.return_value = []
+    opportunity_query.filter_by.return_value.order_by.return_value.all.return_value = []
     monkeypatch.setattr(
         app_module,
         "Opportunity",
         SimpleNamespace(
             query=opportunity_query,
             updated_at=SimpleNamespace(desc=lambda: "updated"),
+        ),
+    )
+    assignment_query = MagicMock()
+    assignment_query.filter_by.return_value.order_by.return_value.all.return_value = []
+    monkeypatch.setattr(
+        app_module,
+        "ResearchAssignment",
+        SimpleNamespace(
+            query=assignment_query,
+            created_at=SimpleNamespace(desc=lambda: "created"),
+            id=SimpleNamespace(desc=lambda: "id"),
         ),
     )
 
@@ -314,13 +325,24 @@ def test_workspace_builds_dashboard_from_existing_records(monkeypatch):
         ),
     )
     opportunity_query = MagicMock()
-    opportunity_query.order_by.return_value.all.return_value = opportunities
+    opportunity_query.filter_by.return_value.order_by.return_value.all.return_value = opportunities
     monkeypatch.setattr(
         app_module,
         "Opportunity",
         SimpleNamespace(
             query=opportunity_query,
             updated_at=SimpleNamespace(desc=lambda: "updated"),
+        ),
+    )
+    assignment_query = MagicMock()
+    assignment_query.filter_by.return_value.order_by.return_value.all.return_value = []
+    monkeypatch.setattr(
+        app_module,
+        "ResearchAssignment",
+        SimpleNamespace(
+            query=assignment_query,
+            created_at=SimpleNamespace(desc=lambda: "created"),
+            id=SimpleNamespace(desc=lambda: "id"),
         ),
     )
 
@@ -353,6 +375,20 @@ def test_workspace_builds_dashboard_from_existing_records(monkeypatch):
     assert build_arguments["assets"] == []
     assert build_arguments["prospects"] is prospects
     assert build_arguments["opportunities"] is opportunities
+    assert build_arguments["research_assignments"] == []
+    prospect_query.filter_by.assert_called_once_with(
+        organization_id=1,
+        initiative_id=10,
+        is_active=True,
+    )
+    opportunity_query.filter_by.assert_called_once_with(
+        organization_id=1,
+        initiative_id=10,
+    )
+    assignment_query.filter_by.assert_called_once_with(
+        organization_id=1,
+        initiative_id=10,
+    )
 
 
 @pytest.mark.parametrize(

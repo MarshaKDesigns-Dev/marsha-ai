@@ -16,6 +16,7 @@
         <tr>
           <th>Score</th>
           <th>Opportunity</th>
+          <th>Sponsorship Asset</th>
           <th>Decision-Maker</th>
           <th>Channel</th>
           <th>Stage</th>
@@ -37,6 +38,7 @@
             <strong>{{ opp.recommended_target }}</strong><br />
             <small>Parent: {{ opp.parent_prospect }}</small>
           </td>
+          <td>{{ opp.category or 'Not specified' }}</td>
 
           <td>
             <strong

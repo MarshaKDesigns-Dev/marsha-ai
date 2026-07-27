@@ -1,0 +1,72 @@
+{% extends "base.html" %} {% block content %}
+<a href="{{ url_for('workspace') }}">← Back to workspace</a>
+
+<div class="eyebrow mt-4">RESEARCH WORKER</div>
+<h1>Choose a sponsorship opportunity</h1>
+<p class="lead">
+  I’ve reviewed your sponsorship strategy and approved assets. Which
+  sponsorship opportunity would you like me to research first?
+</p>
+
+{% if assets %}
+<div class="row g-3 mt-2">
+  {% for asset in assets %}
+  {% set assignment = latest_by_asset.get(asset.id) %}
+  {% set saved_count = saved_counts.get(asset.id, 0) %}
+  <div class="col-lg-6">
+    <section class="card p-4 h-100">
+      <div class="d-flex justify-content-between gap-3">
+        <h2 class="h4">{{ asset.name }}</h2>
+        {% if saved_count %}
+        <span class="badge text-bg-success">{{ saved_count }} saved</span>
+        {% elif assignment and assignment.status == 'completed' %}
+        <span class="badge text-bg-primary">Research completed</span>
+        {% elif assignment and assignment.status == 'needs_attention' %}
+        <span class="badge text-bg-warning">Needs attention</span>
+        {% else %}
+        <span class="badge text-bg-secondary">Not researched</span>
+        {% endif %}
+      </div>
+      {% if asset.description %}<p>{{ asset.description }}</p>{% endif %}
+      {% if asset.sponsor_value or asset.value %}
+      <p><strong>Sponsor value:</strong> {{ asset.sponsor_value or asset.value }}</p>
+      {% endif %}
+      <form
+        method="post"
+        action="{{ url_for('start_asset_research', asset_id=asset.id) }}"
+        class="research-start-form mt-auto"
+      >
+        <button class="btn btn-gold" type="submit">
+          Research this opportunity
+        </button>
+        <p class="research-progress mt-3 mb-0" hidden role="status">
+          <span class="spinner-border spinner-border-sm" aria-hidden="true"></span>
+          Research Worker is working — reviewing the asset, searching for
+          qualified organizations, evaluating evidence, and ranking matches.
+        </p>
+      </form>
+    </section>
+  </div>
+  {% endfor %}
+</div>
+{% else %}
+<div class="empty-state mt-4">
+  <h2>No approved sponsorship assets are ready.</h2>
+  <p>Approve at least one sponsorship asset before beginning research.</p>
+  <a class="btn btn-dark" href="{{ url_for('sponsorship_asset_review') }}">
+    Review sponsorship assets
+  </a>
+</div>
+{% endif %}
+
+<script>
+  document.querySelectorAll(".research-start-form").forEach((form) => {
+    form.addEventListener("submit", () => {
+      const button = form.querySelector("button[type='submit']");
+      button.disabled = true;
+      button.textContent = "Research Worker is working";
+      form.querySelector(".research-progress").hidden = false;
+    });
+  });
+</script>
+{% endblock %}

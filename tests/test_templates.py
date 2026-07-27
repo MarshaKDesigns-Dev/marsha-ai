@@ -68,7 +68,8 @@ def test_navigation_marks_unavailable_features_as_coming_soon():
         "base.html",
     )[0]
 
-    assert template.count("Coming soon") == 5
+    assert template.count("Coming soon") == 4
+    assert "url_for('research_worker')" in template
     assert 'aria-disabled="true"' in template
     assert "sidebar-toggle" in template
     assert "Powered by Marsha AI" in template

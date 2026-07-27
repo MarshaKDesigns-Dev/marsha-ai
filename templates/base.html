@@ -63,11 +63,14 @@
             <span class="nav-icon" aria-hidden="true">◎</span>
             Strategy
           </a>
-          <span class="sidebar-link disabled" aria-disabled="true">
+          <a
+            class="sidebar-link {{ 'active' if endpoint in ['research_worker', 'research_assignment'] else '' }}"
+            href="{{ url_for('research_worker') }}"
+            {% if endpoint in ['research_worker', 'research_assignment'] %}aria-current="page"{% endif %}
+          >
             <span class="nav-icon" aria-hidden="true">♧</span>
             Sponsors
-            <small>Coming soon</small>
-          </span>
+          </a>
           <span class="sidebar-link disabled" aria-disabled="true">
             <span class="nav-icon" aria-hidden="true">✉</span>
             Outreach

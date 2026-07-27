@@ -37,7 +37,7 @@ DEFAULT_MODEL = os.getenv(
     "gpt-4.1-mini",
 )
 SPONSOR_RESEARCH_TIMEOUT_SECONDS = 90.0
-SPONSOR_RESEARCH_MAX_PROSPECTS = 5
+SPONSOR_RESEARCH_MAX_PROSPECTS = 10
 
 
 class SponsorResearchError(RuntimeError):
@@ -367,6 +367,7 @@ def validate_researched_prospects(
     organization: Any | None = None,
     initiative: Any | None = None,
     assets: list[Any] | None = None,
+    selected_asset: Any | None = None,
 ) -> list[SponsorProspectCandidate]:
     """Reject unsupported, excluded, or duplicate prospect candidates."""
 
@@ -423,6 +424,12 @@ def validate_researched_prospects(
                 and candidate.recommended_asset_name not in approved_assets
             ):
                 continue
+            if (
+                selected_asset is not None
+                and candidate.recommended_asset_name
+                != getattr(selected_asset, "name", None)
+            ):
+                continue
 
         key = _canonical_url(candidate.website)
         existing = accepted.get(key)
@@ -444,6 +451,8 @@ def research_sponsor_category(
     *,
     client: OpenAI | None = None,
     model: str | None = None,
+    selected_asset: Any | None = None,
+    prior_results: list[Any] | None = None,
 ) -> list[SponsorProspectCandidate]:
     """Research and validate real prospects using OpenAI web search."""
 
@@ -457,6 +466,7 @@ def research_sponsor_category(
         organization,
         initiative,
     )
+    research_assets = [selected_asset] if selected_asset is not None else assets
     asset_summary = [
         {
             "name": getattr(asset, "name", ""),
@@ -465,7 +475,7 @@ def research_sponsor_category(
                 or getattr(asset, "value", "")
             ),
         }
-        for asset in assets
+        for asset in research_assets
     ]
     exclusions = [
         {
@@ -476,7 +486,7 @@ def research_sponsor_category(
     ]
 
     prompt = f"""
-Research real sponsor prospects for this approved sponsor category.
+Research real sponsor prospects for this approved sponsorship opportunity.
 
 Organization:
 - Name: {getattr(organization, "name", "")}
@@ -499,9 +509,22 @@ Approved category:
 - Ideal sponsor profile: {getattr(category, "ideal_sponsor_profile", "")}
 
 Available sponsorship assets: {asset_summary}
+Selected sponsorship asset: {asset_summary[0] if selected_asset is not None else "Category research"}
+Selected asset description: {getattr(selected_asset, "description", "")}
+Selected asset capacity: {getattr(selected_asset, "capacity", "")}
+Selected asset sponsor value: {getattr(selected_asset, "sponsor_value", "") or getattr(selected_asset, "value", "")}
+Target geography: {getattr(organization, "location", "")}
+Desired sponsor categories: {getattr(initiative, "desired_sponsor_categories_json", "[]")}
+Prior results for this asset: {prior_results or []}
 Deterministic industry exclusions: {exclusions}
 
-Use current public web sources. Return 3-5 real companies or organizations.
+Use current public web sources. Return 5-10 real companies or organizations
+when enough credible evidence exists; return fewer rather than inventing any.
+Research only the selected sponsorship asset when one is supplied. Prioritize
+organizations that directly provide or credibly fit the selected asset. Clearly
+distinguish those organizations from companies that merely sponsor that type of
+service. Do not return a general cash sponsor unless the selected asset calls
+for cash sponsorship.
 Every prospect must have at least one public source supporting its existence,
 location, community connection, sponsorship evidence, or strategic fit.
 Classify evidence as verified_sponsorship only when a source explicitly supports
@@ -602,7 +625,8 @@ is calculated by the application, not by the model.
         eligibility=eligibility,
         organization=organization,
         initiative=initiative,
-        assets=assets,
+        assets=research_assets,
+        selected_asset=selected_asset,
     )
     if not prospects:
         raise NoCredibleProspectsError(
@@ -614,3 +638,43 @@ is calculated by the application, not by the model.
             reason_code="candidates_failed_validation",
         )
     return prospects
+
+
+def research_sponsorship_asset(
+    organization: Any,
+    initiative: Any,
+    asset: Any,
+    eligibility: SponsorEligibilityAnalysis,
+    *,
+    prior_results: list[Any] | None = None,
+    client: OpenAI | None = None,
+    model: str | None = None,
+) -> list[SponsorProspectCandidate]:
+    """Research exactly one approved sponsorship asset."""
+
+    category = type(
+        "AssetResearchCategory",
+        (),
+        {
+            "category": getattr(asset, "name", ""),
+            "research_direction": (
+                f"Research organizations that directly match "
+                f"{getattr(asset, 'name', '')}."
+            ),
+            "ideal_sponsor_profile": (
+                getattr(asset, "sponsor_value", "")
+                or getattr(asset, "description", "")
+            ),
+        },
+    )()
+    return research_sponsor_category(
+        organization,
+        initiative,
+        category,
+        [asset],
+        eligibility,
+        client=client,
+        model=model,
+        selected_asset=asset,
+        prior_results=prior_results,
+    )

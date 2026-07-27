@@ -59,6 +59,7 @@ def persist_sponsor_prospects(
     candidates: list[SponsorProspectCandidate],
     *,
     session: Session | None = None,
+    sponsorship_asset: Any | None = None,
 ) -> list[SponsorProspect]:
     """Upsert validated prospects in one transaction without deleting prior data."""
 
@@ -78,6 +79,14 @@ def persist_sponsor_prospects(
     ):
         raise SponsorProspectPersistenceError(
             "The category does not belong to the active initiative."
+        )
+    if sponsorship_asset is not None and (
+        getattr(sponsorship_asset, "organization_id", None) != organization.id
+        or getattr(sponsorship_asset, "initiative_id", None) != initiative.id
+        or getattr(sponsorship_asset, "approval_status", None) != "Approved"
+    ):
+        raise SponsorProspectPersistenceError(
+            "The sponsorship asset is not approved for the active initiative."
         )
 
     prepared = [
@@ -112,6 +121,9 @@ def persist_sponsor_prospects(
                 )
                 database_session.add(record)
 
+            record.sponsorship_asset_id = (
+                sponsorship_asset.id if sponsorship_asset is not None else None
+            )
             contact = candidate.contact
             record.company_name = candidate.company_name
             record.website = candidate.website

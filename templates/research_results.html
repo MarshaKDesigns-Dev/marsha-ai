@@ -1,0 +1,100 @@
+{% extends "base.html" %} {% block content %}
+<a href="{{ url_for('research_worker') }}">← Choose another asset</a>
+
+<div class="eyebrow mt-4">RESEARCH ASSIGNMENT</div>
+<h1>{{ asset.name if asset else 'Sponsorship opportunity' }}</h1>
+<p>
+  Understood. I researched organizations that directly match this approved
+  sponsorship opportunity and are a strong fit for your initiative.
+</p>
+
+{% if assignment.status == 'working' %}
+<div class="alert alert-warning" role="status">
+  Research Worker is working.
+</div>
+{% elif assignment.status == 'needs_attention' %}
+<div class="alert alert-warning">
+  <strong>This assignment needs attention.</strong>
+  <p class="mb-0">
+    The Research Worker could not complete this assignment. No prospects were
+    saved. Please try again or select another sponsorship asset.
+  </p>
+  {% if assignment.error_details %}
+  <p class="mb-0 mt-2">
+    <strong>What happened:</strong> {{ assignment.error_details }}
+  </p>
+  {% endif %}
+</div>
+<form method="post" action="{{ url_for('start_asset_research', asset_id=asset.id) }}">
+  <button class="btn btn-gold" type="submit">Try this assignment again</button>
+</form>
+{% elif results %}
+<form
+  method="post"
+  action="{{ url_for('review_research_assignment', assignment_id=assignment.id) }}"
+>
+  <div class="row g-3">
+    {% for result in results %}
+    <div class="col-lg-6">
+      <article class="card p-4 h-100">
+        <label class="d-flex gap-3 align-items-start">
+          <input
+            class="form-check-input mt-1"
+            type="checkbox"
+            name="selected_results"
+            value="{{ loop.index0 }}"
+          >
+          <span>
+            <strong class="h4 d-block">{{ result.company_name }}</strong>
+            <span class="badge text-bg-primary">
+              {{ result.confidence|title }} confidence
+            </span>
+          </span>
+        </label>
+        <p class="mt-3"><strong>Why it matches:</strong> {{ result.why_fits }}</p>
+        <p><strong>Location or service area:</strong> {{ result.location }}</p>
+        <p><strong>Suggested fit or ask:</strong> {{ result.recommended_ask }}</p>
+        <h2 class="h6">Public evidence</h2>
+        {% for source in result.evidence_sources %}
+        <p class="small">
+          <a href="{{ source.url }}" target="_blank" rel="noopener">
+            {{ source.title }}
+          </a><br>
+          {{ source.description }}
+        </p>
+        {% endfor %}
+      </article>
+    </div>
+    {% endfor %}
+  </div>
+  <div class="d-flex flex-wrap gap-2 mt-4">
+    <button class="btn btn-gold" type="submit" name="action" value="save_selected">
+      Save Selected to Pipeline
+    </button>
+    <button class="btn btn-dark" type="submit" name="action" value="save_all">
+      Save All to Pipeline
+    </button>
+    <button class="btn btn-outline-danger" type="submit" name="action" value="reject_all">
+      Reject All
+    </button>
+  </div>
+</form>
+<hr class="my-4">
+<h2>What would you like me to research next?</h2>
+<div class="d-flex flex-wrap gap-2">
+  <form method="post" action="{{ url_for('start_asset_research', asset_id=asset.id) }}">
+    <button class="btn btn-outline-dark" type="submit">
+      Research more for this asset
+    </button>
+  </form>
+  <a class="btn btn-dark" href="{{ url_for('research_worker') }}">
+    Choose another asset
+  </a>
+</div>
+{% else %}
+<div class="empty-state">
+  <h2>No qualified results were returned.</h2>
+  <p>No prospects were saved. Try again or select another sponsorship asset.</p>
+</div>
+{% endif %}
+{% endblock %}

@@ -130,6 +130,29 @@ def test_existing_company_is_updated_without_duplicate_insert():
     session.commit.assert_called_once()
 
 
+def test_asset_scoped_persistence_preserves_selected_asset():
+    organization, initiative, category = owners()
+    asset = SimpleNamespace(
+        id=9,
+        organization_id=1,
+        initiative_id=2,
+        approval_status="Approved",
+    )
+    session = MagicMock()
+    session.scalar.return_value = None
+
+    records = persist_sponsor_prospects(
+        organization,
+        initiative,
+        category,
+        [candidate()],
+        session=session,
+        sponsorship_asset=asset,
+    )
+
+    assert records[0].sponsorship_asset_id == 9
+
+
 def test_failed_research_persistence_rolls_back_existing_records():
     organization, initiative, category = owners()
     session = MagicMock()

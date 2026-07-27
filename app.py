@@ -566,6 +566,10 @@ class SponsorProspect(db.Model):
         db.ForeignKey("sponsorship_initiative.id"),
         nullable=False,
     )
+    sponsorship_asset_id = db.Column(
+        db.Integer,
+        db.ForeignKey("sponsorship_asset.id"),
+    )
     category_slug = db.Column(db.String(100), nullable=False)
     company_key = db.Column(db.String(300), nullable=False)
     company_name = db.Column(db.String(300), nullable=False)
@@ -724,6 +728,61 @@ class SponsorshipAsset(db.Model):
             return []
 
 
+class ResearchAssignment(db.Model):
+    """One synchronous Research Worker run for one approved asset."""
+
+    id = db.Column(db.Integer, primary_key=True)
+    organization_id = db.Column(
+        db.Integer,
+        db.ForeignKey("organization.id"),
+        nullable=False,
+    )
+    initiative_id = db.Column(
+        db.Integer,
+        db.ForeignKey("sponsorship_initiative.id"),
+        nullable=False,
+    )
+    sponsorship_asset_id = db.Column(
+        db.Integer,
+        db.ForeignKey("sponsorship_asset.id"),
+        nullable=False,
+    )
+    status = db.Column(db.String(30), nullable=False, default="ready")
+    started_at = db.Column(db.DateTime)
+    completed_at = db.Column(db.DateTime)
+    result_count = db.Column(db.Integer, nullable=False, default=0)
+    results_json = db.Column(db.Text, nullable=False, default="[]")
+    error_details = db.Column(db.Text)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(
+        db.DateTime,
+        default=datetime.utcnow,
+        onupdate=datetime.utcnow,
+    )
+
+    __table_args__ = (
+        db.CheckConstraint(
+            "status IN ('ready', 'working', 'completed', 'needs_attention')",
+            name="ck_research_assignment_status",
+        ),
+        db.Index(
+            "ix_research_assignment_scope",
+            "organization_id",
+            "initiative_id",
+            "sponsorship_asset_id",
+            "created_at",
+        ),
+    )
+
+    @property
+    def results(self):
+        try:
+            result = json.loads(self.results_json or "[]")
+            return result if isinstance(result, list) else []
+        except (TypeError, ValueError):
+            return []
+
+
 class ResearchRecord(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     prospect_key = db.Column(db.String(250), unique=True, nullable=False)
@@ -758,6 +817,22 @@ class ResearchRecord(db.Model):
 
 class Opportunity(db.Model):
     id = db.Column(db.Integer, primary_key=True)
+    organization_id = db.Column(
+        db.Integer,
+        db.ForeignKey("organization.id"),
+    )
+    initiative_id = db.Column(
+        db.Integer,
+        db.ForeignKey("sponsorship_initiative.id"),
+    )
+    sponsorship_asset_id = db.Column(
+        db.Integer,
+        db.ForeignKey("sponsorship_asset.id"),
+    )
+    sponsor_prospect_id = db.Column(
+        db.Integer,
+        db.ForeignKey("sponsor_prospect.id"),
+    )
     parent_prospect = db.Column(db.String(200), nullable=False)
     recommended_target = db.Column(db.String(200))
     category = db.Column(db.String(100))
@@ -1769,7 +1844,22 @@ def workspace():
         SponsorProspect.updated_at.desc(),
         SponsorProspect.id.desc(),
     ).all()
-    opportunities = Opportunity.query.order_by(
+    research_assignments = ResearchAssignment.query.filter_by(
+        organization_id=organization.id,
+        initiative_id=initiative.id,
+    ).order_by(
+        ResearchAssignment.created_at.desc(),
+        ResearchAssignment.id.desc(),
+    ).all()
+    asset_names = {asset.id: asset.name for asset in assets}
+    for assignment in research_assignments:
+        assignment.asset_name = asset_names.get(
+            assignment.sponsorship_asset_id
+        )
+    opportunities = Opportunity.query.filter_by(
+        organization_id=organization.id,
+        initiative_id=initiative.id,
+    ).order_by(
         Opportunity.updated_at.desc()
     ).all()
     dashboard = build_dashboard(
@@ -1781,6 +1871,7 @@ def workspace():
         assets=assets,
         prospects=prospects,
         opportunities=opportunities,
+        research_assignments=research_assignments,
     )
 
     return render_template(
@@ -2183,6 +2274,346 @@ def generate_workspace_sponsorship_intelligence():
     else:
         flash(result.message, "warning")
     return redirect(url_for("workspace"))
+
+
+def _approved_research_asset(organization, initiative, asset_id):
+    return SponsorshipAsset.query.filter_by(
+        id=asset_id,
+        organization_id=organization.id,
+        initiative_id=initiative.id,
+        is_active=True,
+        approval_status="Approved",
+    ).first()
+
+
+def _research_assignment_context(organization, initiative):
+    assets = SponsorshipAsset.query.filter_by(
+        organization_id=organization.id,
+        initiative_id=initiative.id,
+        is_active=True,
+        approval_status="Approved",
+    ).order_by(SponsorshipAsset.created_at.asc()).all()
+    assignments = ResearchAssignment.query.filter_by(
+        organization_id=organization.id,
+        initiative_id=initiative.id,
+    ).order_by(ResearchAssignment.created_at.desc()).all()
+    latest_by_asset = {}
+    for assignment in assignments:
+        latest_by_asset.setdefault(
+            assignment.sponsorship_asset_id,
+            assignment,
+        )
+    saved_counts = {}
+    for opportunity in Opportunity.query.filter_by(
+        organization_id=organization.id,
+        initiative_id=initiative.id,
+    ).all():
+        asset_id = opportunity.sponsorship_asset_id
+        if asset_id is not None:
+            saved_counts[asset_id] = saved_counts.get(asset_id, 0) + 1
+    return assets, latest_by_asset, saved_counts
+
+
+@app.route("/research")
+def research_worker():
+    organization = get_active_organization()
+    initiative = get_active_initiative()
+    if (
+        organization is None
+        or initiative is None
+        or initiative.organization_id != organization.id
+    ):
+        flash("Complete organization and initiative setup first.", "warning")
+        return redirect(url_for("setup"))
+    assets, latest_by_asset, saved_counts = _research_assignment_context(
+        organization,
+        initiative,
+    )
+    return render_template(
+        "research_worker.html",
+        assets=assets,
+        latest_by_asset=latest_by_asset,
+        saved_counts=saved_counts,
+    )
+
+
+@app.route("/research/assets/<int:asset_id>", methods=["POST"])
+def start_asset_research(asset_id):
+    organization = get_active_organization()
+    initiative = get_active_initiative()
+    if (
+        organization is None
+        or initiative is None
+        or initiative.organization_id != organization.id
+    ):
+        flash("Complete organization and initiative setup first.", "warning")
+        return redirect(url_for("setup"))
+    asset = _approved_research_asset(organization, initiative, asset_id)
+    if asset is None:
+        flash(
+            "Select an approved sponsorship asset for this initiative.",
+            "warning",
+        )
+        return redirect(url_for("research_worker"))
+
+    working = ResearchAssignment.query.filter_by(
+        organization_id=organization.id,
+        initiative_id=initiative.id,
+        sponsorship_asset_id=asset.id,
+        status="working",
+    ).first()
+    if working is not None:
+        flash("The Research Worker is already working on this asset.", "warning")
+        return redirect(
+            url_for("research_assignment", assignment_id=working.id)
+        )
+
+    assignment = ResearchAssignment(
+        organization_id=organization.id,
+        initiative_id=initiative.id,
+        sponsorship_asset_id=asset.id,
+        status="working",
+        started_at=datetime.now(UTC).replace(tzinfo=None),
+    )
+    db.session.add(assignment)
+    db.session.commit()
+
+    from services.sponsor_research import (
+        NoCredibleProspectsError,
+        SponsorResearchError,
+        SponsorResearchUnavailableError,
+        research_sponsorship_asset,
+    )
+
+    try:
+        intelligence = get_sponsorship_intelligence(organization, initiative)
+        prior_names = [
+            item.company_name
+            for item in SponsorProspect.query.filter_by(
+                organization_id=organization.id,
+                initiative_id=initiative.id,
+                sponsorship_asset_id=asset.id,
+                is_active=True,
+            ).all()
+        ]
+        candidates = research_sponsorship_asset(
+            organization,
+            initiative,
+            asset,
+            intelligence.sponsor_eligibility,
+            prior_results=prior_names,
+        )
+        assignment.results_json = json.dumps(
+            [item.model_dump(mode="json") for item in candidates],
+            ensure_ascii=False,
+        )
+        assignment.result_count = len(candidates)
+        assignment.status = "completed"
+        assignment.completed_at = datetime.now(UTC).replace(tzinfo=None)
+        assignment.error_details = None
+        db.session.commit()
+        flash(
+            f"Research completed for {asset.name}. Review the results below.",
+            "success",
+        )
+    except (
+        NoCredibleProspectsError,
+        SponsorResearchUnavailableError,
+        SponsorResearchError,
+    ) as exc:
+        assignment.status = "needs_attention"
+        assignment.completed_at = datetime.now(UTC).replace(tzinfo=None)
+        assignment.error_details = str(exc)
+        assignment.result_count = 0
+        assignment.results_json = "[]"
+        db.session.commit()
+        app.logger.warning(
+            "asset_research_failed assignment_id=%s asset_id=%s reason=%s",
+            assignment.id,
+            asset.id,
+            getattr(exc, "reason_code", type(exc).__name__),
+        )
+        flash(
+            "The Research Worker could not complete this assignment. No "
+            "prospects were saved. Please try again or select another "
+            "sponsorship asset.",
+            "warning",
+        )
+    except Exception:
+        db.session.rollback()
+        assignment = db.session.get(ResearchAssignment, assignment.id)
+        assignment.status = "needs_attention"
+        assignment.completed_at = datetime.now(UTC).replace(tzinfo=None)
+        assignment.error_details = "Unexpected research processing failure."
+        assignment.result_count = 0
+        assignment.results_json = "[]"
+        db.session.commit()
+        app.logger.exception(
+            "asset_research_failed assignment_id=%s asset_id=%s "
+            "reason=unexpected_error",
+            assignment.id,
+            asset.id,
+        )
+        flash(
+            "The Research Worker could not complete this assignment. No "
+            "prospects were saved. Please try again or select another "
+            "sponsorship asset.",
+            "warning",
+        )
+    return redirect(
+        url_for("research_assignment", assignment_id=assignment.id)
+    )
+
+
+@app.route("/research/assignments/<int:assignment_id>")
+def research_assignment(assignment_id):
+    organization = get_active_organization()
+    initiative = get_active_initiative()
+    assignment = ResearchAssignment.query.filter_by(
+        id=assignment_id,
+        organization_id=getattr(organization, "id", None),
+        initiative_id=getattr(initiative, "id", None),
+    ).first_or_404()
+    asset = _approved_research_asset(
+        organization,
+        initiative,
+        assignment.sponsorship_asset_id,
+    )
+    if asset is None:
+        flash(
+            "The sponsorship asset for this assignment is no longer approved.",
+            "warning",
+        )
+        return redirect(url_for("research_worker"))
+    return render_template(
+        "research_results.html",
+        assignment=assignment,
+        asset=asset,
+        results=assignment.results,
+    )
+
+
+@app.route(
+    "/research/assignments/<int:assignment_id>/review",
+    methods=["POST"],
+)
+def review_research_assignment(assignment_id):
+    from services.sponsor_prospect_persistence import (
+        SponsorProspectPersistenceError,
+        persist_sponsor_prospects,
+    )
+    from services.sponsor_research import SponsorProspectCandidate
+
+    organization = get_active_organization()
+    initiative = get_active_initiative()
+    assignment = ResearchAssignment.query.filter_by(
+        id=assignment_id,
+        organization_id=getattr(organization, "id", None),
+        initiative_id=getattr(initiative, "id", None),
+        status="completed",
+    ).first_or_404()
+    asset = _approved_research_asset(
+        organization,
+        initiative,
+        assignment.sponsorship_asset_id,
+    )
+    if asset is None:
+        flash(
+            "The sponsorship asset for this assignment is no longer approved.",
+            "warning",
+        )
+        return redirect(url_for("research_worker"))
+    action = request.form.get("action")
+    if action == "reject_all":
+        assignment.results_json = "[]"
+        assignment.result_count = 0
+        db.session.commit()
+        flash("All results were rejected. No prospects were saved.", "success")
+        return redirect(url_for("research_worker"))
+
+    raw_results = assignment.results
+    if action == "save_all":
+        selected_indexes = list(range(len(raw_results)))
+    else:
+        selected_indexes = sorted(
+            {
+                int(value)
+                for value in request.form.getlist("selected_results")
+                if value.isdigit() and int(value) < len(raw_results)
+            }
+        )
+    if not selected_indexes:
+        flash("Select at least one result to save.", "warning")
+        return redirect(
+            url_for("research_assignment", assignment_id=assignment.id)
+        )
+
+    category = type(
+        "AssetCategory",
+        (),
+        {
+            "organization_id": organization.id,
+            "initiative_id": initiative.id,
+            "slug": f"asset-{asset.id}",
+        },
+    )()
+    try:
+        candidates = [
+            SponsorProspectCandidate.model_validate(raw_results[index])
+            for index in selected_indexes
+        ]
+        prospects = persist_sponsor_prospects(
+            organization,
+            initiative,
+            category,
+            candidates,
+            sponsorship_asset=asset,
+        )
+        created_count = 0
+        for prospect_record in prospects:
+            existing = Opportunity.query.filter_by(
+                organization_id=organization.id,
+                initiative_id=initiative.id,
+                sponsorship_asset_id=asset.id,
+                sponsor_prospect_id=prospect_record.id,
+            ).first()
+            if existing is not None:
+                continue
+            db.session.add(
+                Opportunity(
+                    organization_id=organization.id,
+                    initiative_id=initiative.id,
+                    sponsorship_asset_id=asset.id,
+                    sponsor_prospect_id=prospect_record.id,
+                    parent_prospect=prospect_record.company_name,
+                    recommended_target=prospect_record.company_name,
+                    category=asset.name,
+                    score=prospect_record.ranking_score,
+                    confidence=prospect_record.confidence,
+                    verified_date=prospect_record.research_date.isoformat(),
+                    sources_json=prospect_record.evidence_json,
+                    stage="Research Approved",
+                )
+            )
+            created_count += 1
+        db.session.commit()
+    except (SponsorProspectPersistenceError, ValueError):
+        db.session.rollback()
+        flash(
+            "The selected results could not be saved. Existing pipeline "
+            "records were preserved.",
+            "warning",
+        )
+        return redirect(
+            url_for("research_assignment", assignment_id=assignment.id)
+        )
+
+    flash(
+        f"{created_count} sponsor prospect"
+        f"{'' if created_count == 1 else 's'} saved to the pipeline.",
+        "success",
+    )
+    return redirect(url_for("research_worker"))
 
 
 @app.route("/prospects/<category>", methods=["GET", "POST"])
@@ -2624,12 +3055,25 @@ def approve(category, index):
 
 @app.route("/pipeline")
 def show_pipeline():
-    opportunities = Opportunity.query.order_by(Opportunity.updated_at.desc()).all()
+    organization = get_active_organization()
+    initiative = get_active_initiative()
+    if (
+        organization is None
+        or initiative is None
+        or initiative.organization_id != organization.id
+    ):
+        flash("Complete organization and initiative setup first.", "warning")
+        return redirect(url_for("setup"))
+
+    opportunities = Opportunity.query.filter_by(
+        organization_id=organization.id,
+        initiative_id=initiative.id,
+    ).order_by(Opportunity.updated_at.desc()).all()
 
     return render_template(
         "pipeline.html",
         opportunities=opportunities,
-        today=date.today()
+        today=date.today(),
     )
 
 

@@ -301,7 +301,7 @@ def test_no_placeholder_fallback_when_research_has_no_credible_results():
     request = request_client.with_options.return_value.responses.parse
     assert request.call_args.kwargs["model"] == "gpt-4.1-mini"
     assert "reasoning" not in request.call_args.kwargs
-    assert "Return 3-5 real companies" in request.call_args.kwargs["input"]
+    assert "Return 5-10 real companies" in request.call_args.kwargs["input"]
     assert "additional\nsearches solely to find contact details" in (
         request.call_args.kwargs["input"]
     )
