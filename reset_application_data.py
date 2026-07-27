@@ -11,8 +11,9 @@ Usage:
 
 import argparse
 import json
+from pathlib import Path
 
-from sqlalchemy import delete, func, select, text
+from sqlalchemy import delete, func, inspect, select, text
 
 from app import app, db
 
@@ -36,6 +37,63 @@ def record_counts(connection) -> dict[str, int]:
             select(func.count()).select_from(table)
         )
         for table in application_tables()
+    }
+
+
+def database_identity() -> dict[str, str]:
+    """Return a secret-safe description of the configured reset target."""
+
+    url = db.engine.url
+    if url.drivername.startswith("sqlite"):
+        return {
+            "driver": url.drivername,
+            "database": str(Path(url.database).resolve()),
+        }
+    return {
+        "driver": url.drivername,
+        "database": url.database or "",
+        "host": url.host or "",
+    }
+
+
+def verify_application_data_empty(counts: dict[str, int]) -> None:
+    """Fail the reset if any model-backed application rows remain."""
+
+    remaining = {
+        table_name: count
+        for table_name, count in counts.items()
+        if count
+    }
+    if remaining:
+        raise RuntimeError(
+            f"Application-data reset verification failed: {remaining}"
+        )
+
+
+def verify_database_integrity(connection) -> dict:
+    """Verify application tables remain and SQLite has no FK violations."""
+
+    existing_tables = set(inspect(connection).get_table_names())
+    missing_tables = set(application_table_names()) - existing_tables
+    if missing_tables:
+        raise RuntimeError(
+            f"Reset removed required schema tables: {sorted(missing_tables)}"
+        )
+    foreign_key_violations = []
+    if connection.dialect.name == "sqlite":
+        foreign_key_violations = [
+            list(row)
+            for row in connection.execute(
+                text("PRAGMA foreign_key_check")
+            )
+        ]
+    if foreign_key_violations:
+        raise RuntimeError(
+            "Foreign-key verification failed after reset."
+        )
+    return {
+        "schema_verified": True,
+        "foreign_key_violations": foreign_key_violations,
     }
 
 
@@ -82,20 +140,30 @@ def run(*, execute: bool, confirmation: str | None) -> dict:
                 before = record_counts(connection)
             return {
                 "mode": "inventory",
+                "database": database_identity(),
                 "tables": application_table_names(),
                 "before": before,
+                "execute_command": (
+                    "python reset_application_data.py --execute "
+                    f"--confirm {CONFIRMATION}"
+                ),
             }
 
         with db.engine.begin() as connection:
             before = record_counts(connection)
             clear_application_data(connection)
             after = record_counts(connection)
+            verify_application_data_empty(after)
+            integrity = verify_database_integrity(connection)
 
         return {
             "mode": "executed",
+            "database": database_identity(),
             "tables": application_table_names(),
             "before": before,
             "after": after,
+            "verified_empty": True,
+            **integrity,
         }
 
 
