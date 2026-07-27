@@ -41,6 +41,9 @@ class DashboardPriority:
     level: str
     action: DashboardAction
     supporting_line: str | None = None
+    worker_name: str = "Pipeline Worker"
+    worker_icon: str = "pipeline"
+    status: str = "Ready"
 
 
 @dataclass(frozen=True)
@@ -112,6 +115,46 @@ def _whats_next(priority: DashboardPriority) -> tuple[str, str]:
     """Explain the stage that follows the current required action."""
 
     return {
+        "Complete your sponsorship setup": (
+            "Meet with your Strategy Worker",
+            "After setup, the Strategy Worker can prepare your sponsorship plan.",
+        ),
+        "Your Strategy Worker is ready": (
+            "Generate your sponsorship strategy",
+            "Complete the Strategy Meeting to provide campaign priorities and constraints.",
+        ),
+        "Your Strategy Worker is preparing your sponsorship strategy": (
+            "Review Sponsorship Assets",
+            "When strategy work finishes, approve the opportunities you can deliver.",
+        ),
+        "Your sponsorship strategy is ready for review": (
+            "Assign sponsor research",
+            "After approving an asset, choose what the Research Worker should research.",
+        ),
+        "Your Research Worker is searching for sponsors": (
+            "Review Research Results",
+            "When research finishes, choose which qualified sponsors to save.",
+        ),
+        "Your sponsor research is ready for review": (
+            "Build your pipeline",
+            "Save the qualified sponsor opportunities you want to pursue.",
+        ),
+        "What would you like your Research Worker to research next?": (
+            "Review qualified sponsors",
+            "Assign one approved sponsorship asset at a time.",
+        ),
+        "Your Outreach Worker is ready": (
+            "Review sponsor communication",
+            "Create a tailored message for the selected opportunity.",
+        ),
+        "Your Outreach Worker is preparing sponsor communication": (
+            "Approve sponsor communication",
+            "Review the tailored message before delivery.",
+        ),
+        "Manage your sponsorship pipeline": (
+            "Keep sponsor conversations moving",
+            "Review delivery status, next actions, and follow-up dates.",
+        ),
         "Strategy needs attention": (
             "Strategy generation resumes",
             "After a successful retry, you will review the generated sponsorship assets.",
@@ -301,30 +344,78 @@ def _is_overdue_follow_up(opportunity: Any, today: date) -> bool:
 
 def _top_priority(
     *,
+    organization: Any,
+    initiative: Any,
     intelligence: Any,
     generation_job: Any,
     eligibility: Any,
     top_category: Any,
     meeting_complete: bool,
     approved_asset_count: int,
+    assignments: list[Any],
     prospects: list[Any],
     opportunities: list[Any],
     overdue_follow_ups: list[Any],
     outreach_waiting: list[Any],
 ) -> DashboardPriority:
+    """Select one internally consistent hero from persisted workflow state."""
+
+    def hero(
+        worker_name,
+        worker_icon,
+        status,
+        title,
+        message,
+        action,
+        *,
+        level="primary",
+        supporting_line=None,
+    ):
+        return DashboardPriority(
+            title=title,
+            message=message,
+            level=level,
+            action=action,
+            supporting_line=supporting_line,
+            worker_name=worker_name,
+            worker_icon=worker_icon,
+            status=status,
+        )
+
     job_status = (
         (getattr(generation_job, "status", "") or "").lower()
         if generation_job is not None
         else ""
     )
 
+    setup_complete = bool(
+        organization
+        and initiative
+        and (getattr(organization, "name", "") or "").strip()
+        and (getattr(initiative, "name", "") or "").strip()
+    )
+    if not setup_complete:
+        return hero(
+            "Organization Setup",
+            "organization",
+            "Action Required",
+            "Complete your sponsorship setup",
+            (
+                "Provide the organization and initiative information Marsha "
+                "AI needs before the Strategy Worker can begin."
+            ),
+            DashboardAction("Continue Setup", "setup"),
+        )
+
     if job_status == "failed":
-        return DashboardPriority(
-            title="Strategy needs attention",
-            message="Strategy generation stopped before completion.",
-            level="warning",
-            action=DashboardAction(
-                "Try again",
+        return hero(
+            "Strategy Worker",
+            "strategy",
+            "Needs Attention",
+            "Your Strategy Worker needs attention",
+            "Strategy generation stopped before completion.",
+            DashboardAction(
+                "Retry Strategy Generation",
                 "generate_workspace_sponsorship_intelligence",
                 "POST",
                 form_data=(
@@ -333,6 +424,7 @@ def _top_priority(
                     else {}
                 ),
             ),
+            level="warning",
             supporting_line=(
                 getattr(generation_job, "message", None)
                 or "Your existing intelligence was preserved."
@@ -340,22 +432,149 @@ def _top_priority(
         )
 
     if job_status in ACTIVE_JOB_STATUSES:
-        return DashboardPriority(
-            title="Strategy work is underway",
-            message=(
-                "Your Strategy Worker is preparing the sponsorship plan."
+        return hero(
+            "Strategy Worker",
+            "strategy",
+            "Working",
+            "Your Strategy Worker is preparing your sponsorship strategy",
+            (
+                "I’m reviewing your organization, initiative, priorities, "
+                "goals, and constraints."
             ),
+            DashboardAction(),
             level="info",
-            action=DashboardAction(),
         )
 
-    if (
-        intelligence is not None
-        and approved_asset_count > 0
-        and (
-        eligibility is None
-        or bool(getattr(eligibility, "research_blocked", True))
+    if not meeting_complete or intelligence is None:
+        return hero(
+            "Strategy Worker",
+            "strategy",
+            "Ready",
+            "Your Strategy Worker is ready",
+            (
+                "Complete the Strategy Meeting so Marsha AI can prepare your "
+                "sponsorship strategy and recommended assets."
+            ),
+            DashboardAction("Begin Strategy Meeting", "strategy_meeting"),
         )
+
+    if approved_asset_count == 0:
+        return hero(
+            "Strategy Worker",
+            "strategy",
+            "Ready for Review",
+            "Your sponsorship strategy is ready for review",
+            (
+                "Review the recommended sponsorship assets and approve the "
+                "opportunities your organization can offer."
+            ),
+            DashboardAction(
+                "Review Strategy",
+                "strategy_work",
+            ),
+        )
+
+    def assignment_is_reviewed(assignment):
+        result_count = getattr(assignment, "result_count", 0) or 0
+        if result_count == 0:
+            return True
+        completed_at = _as_utc(getattr(assignment, "completed_at", None))
+        return any(
+            (
+                getattr(opportunity, "sponsorship_asset_id", None)
+                == getattr(assignment, "sponsorship_asset_id", None)
+            )
+            and (
+                completed_at is None
+                or _as_utc(getattr(opportunity, "created_at", None)) is None
+                or _as_utc(getattr(opportunity, "created_at", None))
+                >= completed_at
+            )
+            for opportunity in opportunities
+        )
+
+    attention_assignment = next(
+        (
+            item
+            for item in assignments
+            if (getattr(item, "status", "") or "").lower()
+            == "needs_attention"
+        ),
+        None,
+    )
+    working_assignment = next(
+        (
+            item
+            for item in assignments
+            if (getattr(item, "status", "") or "").lower() == "working"
+        ),
+        None,
+    )
+    review_assignment = next(
+        (
+            item
+            for item in assignments
+            if (getattr(item, "status", "") or "").lower() == "completed"
+            and not assignment_is_reviewed(item)
+        ),
+        None,
+    )
+
+    if attention_assignment is not None:
+        return hero(
+            "Research Worker",
+            "research",
+            "Needs Attention",
+            "Your Research Worker could not complete the assignment",
+            (
+                "Review the issue and retry the research assignment or choose "
+                "another approved asset."
+            ),
+            DashboardAction(
+                "Review Research Assignment",
+                "research_assignment",
+                route_params={"assignment_id": attention_assignment.id},
+            ),
+            level="warning",
+        )
+    if working_assignment is not None:
+        return hero(
+            "Research Worker",
+            "research",
+            "Working",
+            "Your Research Worker is searching for sponsors",
+            (
+                "I’m analyzing organizations that match your selected "
+                "sponsorship asset, strategy, geography, and sponsor criteria."
+            ),
+            DashboardAction(
+                "View Research Progress",
+                "research_assignment",
+                route_params={"assignment_id": working_assignment.id},
+            ),
+            level="info",
+            supporting_line=getattr(working_assignment, "asset_name", None),
+        )
+
+    if review_assignment is not None:
+        return hero(
+            "Research Worker",
+            "research",
+            "Completed",
+            "Your sponsor research is ready for review",
+            (
+                "Review the qualified prospects and decide which "
+                "organizations to save to your pipeline."
+            ),
+            DashboardAction(
+                "Review Research Results",
+                "research_assignment",
+                route_params={"assignment_id": review_assignment.id},
+            ),
+        )
+
+    if eligibility is None or bool(
+        getattr(eligibility, "research_blocked", True)
     ):
         missing = list(
             getattr(eligibility, "missing_information", []) or []
@@ -365,129 +584,117 @@ def _top_priority(
             if missing
             else "Required sponsor eligibility information is incomplete."
         )
-        return DashboardPriority(
-            title="Resolve required information",
-            message="Sponsor research is waiting for required information.",
+        return hero(
+            "Research Worker",
+            "research",
+            "Needs Attention",
+            "Your Research Worker needs required information",
+            "Sponsor research is waiting for required information.",
+            DashboardAction("Edit Setup", "setup"),
             level="warning",
-            action=DashboardAction("Edit setup", "setup"),
             supporting_line=detail,
         )
 
-    if overdue_follow_ups:
-        opportunity = overdue_follow_ups[0]
-        return DashboardPriority(
-            title="Follow-up due",
-            message="A sponsor follow-up needs your attention today.",
-            level="warning",
-            action=DashboardAction(
-                "Open follow-up",
+    outreach_working = next(
+        (
+            item
+            for item in opportunities
+            if (
+                getattr(item, "stage", None)
+                in {"Outreach Working", "Message Review"}
+                or bool(getattr(item, "outreach", None))
+                or bool(getattr(item, "reviewed_message", None))
+                or bool(getattr(item, "message_reviewed_at", None))
+            )
+            and getattr(item, "stage", None) not in OUTREACH_ACTIVE_STAGES
+        ),
+        None,
+    )
+    outreach_ready = next(
+        (
+            item
+            for item in opportunities
+            if getattr(item, "stage", None) == "Ready to Send"
+            and not getattr(item, "outreach", None)
+            and not getattr(item, "reviewed_message", None)
+            and not getattr(item, "message_reviewed_at", None)
+        ),
+        None,
+    )
+    if outreach_working is not None:
+        return hero(
+            "Outreach Worker",
+            "outreach",
+            "Working",
+            "Your Outreach Worker is preparing sponsor communication",
+            (
+                "I’m creating a message tailored to the sponsor, sponsorship "
+                "asset, and initiative."
+            ),
+            DashboardAction(
+                "View Outreach Work",
                 "opportunity_detail",
-                route_params={"opportunity_id": opportunity.id},
+                route_params={"opportunity_id": outreach_working.id},
             ),
-            supporting_line=(
-                getattr(opportunity, "recommended_target", None)
-                or getattr(opportunity, "parent_prospect", None)
-            ),
+            level="info",
         )
-
-    if outreach_waiting:
-        opportunity = outreach_waiting[0]
-        return DashboardPriority(
-            title="Approve sponsor outreach",
-            message="An outreach message is ready for your review.",
-            level="primary",
-            action=DashboardAction(
-                "Review outreach",
+    if outreach_ready is not None:
+        return hero(
+            "Outreach Worker",
+            "outreach",
+            "Ready",
+            "Your Outreach Worker is ready",
+            (
+                "Select a sponsor opportunity and create a tailored outreach "
+                "message."
+            ),
+            DashboardAction(
+                "Begin Outreach",
                 "opportunity_detail",
-                route_params={"opportunity_id": opportunity.id},
-            ),
-            supporting_line=(
-                getattr(opportunity, "recommended_target", None)
-                or getattr(opportunity, "parent_prospect", None)
+                route_params={"opportunity_id": outreach_ready.id},
             ),
         )
 
-    if intelligence is not None and approved_asset_count == 0:
-        return DashboardPriority(
-            title="Review Sponsorship Assets.",
-            message=(
-                "Approve the benefits your organization can confidently "
-                "deliver before sponsor research begins."
+    pipeline_opportunities = [
+        item
+        for item in opportunities
+        if getattr(item, "stage", None) in OUTREACH_ACTIVE_STAGES
+        or getattr(item, "follow_up_date", None)
+        or getattr(item, "sent_date", None)
+    ]
+    if not pipeline_opportunities:
+        return hero(
+            "Research Worker",
+            "research",
+            "Ready",
+            "What would you like your Research Worker to research next?",
+            (
+                "Choose one approved sponsorship asset and I’ll identify "
+                "qualified sponsor prospects for that opportunity."
             ),
-            level="primary",
-            action=DashboardAction(
-                "Review assets",
-                "sponsorship_asset_review",
-            ),
+            DashboardAction("Assign Research", "research_worker"),
         )
 
-    if intelligence is None:
-        return DashboardPriority(
-            title="Create your sponsorship strategy",
-            message=(
-                "Meet with your Strategy Worker before researching "
-                "potential sponsors."
-            ),
-            level="primary",
-            action=DashboardAction(
-                "Begin Strategy Meeting",
-                "strategy_meeting",
-            ),
-        )
-
-    if not prospects and top_category is not None:
-        return DashboardPriority(
-            title="Sponsor research is ready",
-            message=(
-                f"Begin with the highest-priority category: "
-                f"{getattr(top_category, 'category', 'recommended sponsors')}."
-            ),
-            level="primary",
-            action=DashboardAction(
-                "Research sponsors",
-                "prospects",
-                "POST",
-                {"category": top_category.slug},
-            ),
-        )
-
-    if prospects and not opportunities:
-        category = getattr(prospects[0], "category_slug", None)
-        return DashboardPriority(
-            title="Review Sponsor Opportunities",
-            message=(
-                f"Your Research Worker found {len(prospects)} potential "
-                f"sponsor candidate{'' if len(prospects) == 1 else 's'} "
-                "for review."
-            ),
-            level="primary",
-            action=(
-                DashboardAction(
-                    "View sponsors",
-                    "prospects",
-                    route_params={"category": category},
-                )
-                if category
-                else DashboardAction("Open pipeline", "show_pipeline")
-            ),
-        )
-
-    if opportunities:
-        return DashboardPriority(
-            title="Review your active pipeline",
-            message=(
-                "Keep opportunities moving and confirm the next action for "
-                "each sponsor."
-            ),
-            level="primary",
-            action=DashboardAction("Open pipeline", "show_pipeline"),
-        )
-
-    return DashboardPriority(
-        title="Your sponsorship workflow is up to date",
-        message="Review the pipeline for current sponsor activity.",
-        level="success",
-        action=DashboardAction("Open pipeline", "show_pipeline"),
+    pipeline_target = overdue_follow_ups[0] if overdue_follow_ups else None
+    return hero(
+        "Pipeline Worker",
+        "pipeline",
+        "Action Required" if pipeline_target else "Monitoring",
+        "Manage your sponsorship pipeline",
+        (
+            "Review saved opportunities, outreach status, next actions, and "
+            "follow-up dates."
+        ),
+        (
+            DashboardAction(
+                "Open Follow-up",
+                "opportunity_detail",
+                route_params={"opportunity_id": pipeline_target.id},
+            )
+            if pipeline_target
+            else DashboardAction("Open Pipeline", "show_pipeline")
+        ),
+        level="warning" if pipeline_target else "primary",
     )
 
 
@@ -501,6 +708,7 @@ def build_dashboard(
     assets: Iterable[Any] = (),
     prospects: Iterable[Any] = (),
     opportunities: Iterable[Any] = (),
+    research_assignments: Iterable[Any] = (),
     now: datetime | None = None,
 ) -> DashboardView:
     """Build the Release 1 dashboard without mutating application records."""
@@ -510,6 +718,7 @@ def build_dashboard(
     prospect_list = list(prospects)
     asset_list = list(assets)
     opportunity_list = list(opportunities)
+    assignment_list = list(research_assignments)
     eligibility = (
         getattr(intelligence, "sponsor_eligibility", None)
         if intelligence is not None
@@ -554,16 +763,26 @@ def build_dashboard(
         and getattr(asset, "approval_status", "Pending") == "Approved"
         for asset in asset_list
     )
+    setup_complete = bool(
+        organization
+        and initiative
+        and (getattr(organization, "name", "") or "").strip()
+        and (getattr(initiative, "name", "") or "").strip()
+    )
+    strategy_ready = bool(meeting_complete and intelligence is not None)
 
     progress = (
-        DashboardProgressStep("Organization Setup", "Complete"),
+        DashboardProgressStep(
+            "Organization Setup",
+            "Complete" if setup_complete else "Current",
+        ),
         DashboardProgressStep(
             "Strategy Meeting",
             (
                 "Complete"
-                if meeting_complete
+                if strategy_ready
                 else "Current"
-                if job_status in ACTIVE_JOB_STATUSES
+                if setup_complete
                 else "Not started"
             ),
         ),
@@ -571,14 +790,16 @@ def build_dashboard(
             "Sponsor Research",
             (
                 "Complete"
-                if prospect_list
+                if strategy_ready and prospect_list
                 else "Action required"
-                if research_blocked or (
+                if strategy_ready and (
+                    research_blocked or (
                     intelligence is not None
                     and approved_asset_count == 0
+                    )
                 )
                 else "Current"
-                if intelligence is not None
+                if strategy_ready
                 else "Not started"
             ),
         ),
@@ -586,9 +807,9 @@ def build_dashboard(
             "Outreach",
             (
                 "Current"
-                if opportunity_list
+                if strategy_ready and opportunity_list
                 else "Waiting"
-                if prospect_list
+                if strategy_ready and prospect_list
                 else "Not started"
             ),
         ),
@@ -596,17 +817,19 @@ def build_dashboard(
             "Follow-ups",
             (
                 "Action required"
-                if overdue_follow_ups
+                if strategy_ready and overdue_follow_ups
                 else "Current"
-                if active_outreach
+                if strategy_ready and active_outreach
                 else "Waiting"
-                if opportunity_list
+                if strategy_ready and opportunity_list
                 else "Not started"
             ),
         ),
         DashboardProgressStep(
             "Sponsors Secured",
-            "Complete" if sponsors_secured else "Not started",
+            "Complete"
+            if strategy_ready and sponsors_secured
+            else "Not started",
         ),
     )
 
@@ -616,7 +839,7 @@ def build_dashboard(
             "Action required",
             "I couldn't complete the strategy safely.",
             DashboardAction(
-                "Try again",
+                "Retry Strategy Generation",
                 "generate_workspace_sponsorship_intelligence",
                 "POST",
             ),
@@ -633,20 +856,24 @@ def build_dashboard(
             "Analyze the active initiative",
         )
     elif intelligence is not None:
-        strategy_worker = DashboardWorker(
-            "Strategy Worker",
-            "Complete",
-            "I've completed your sponsorship strategy.",
-            DashboardAction(
-                "Regenerate",
-                "generate_workspace_sponsorship_intelligence",
-                "POST",
-                {},
-                {"regenerate": "true"},
-            ),
-            "Current task",
-            "Ready for sponsor research",
-        )
+        if approved_asset_count == 0:
+            strategy_worker = DashboardWorker(
+                "Strategy Worker",
+                "Ready for Review",
+                "I've completed your sponsorship strategy.",
+                DashboardAction("Review Strategy", "strategy_work"),
+                "Waiting on",
+                "Your strategy approval",
+            )
+        else:
+            strategy_worker = DashboardWorker(
+                "Strategy Worker",
+                "Complete",
+                "I've completed and applied your approved strategy.",
+                DashboardAction("Review Strategy", "strategy_work"),
+                "Current task",
+                "Support the Research Worker",
+            )
     else:
         strategy_worker = DashboardWorker(
             "Strategy Worker",
@@ -663,17 +890,26 @@ def build_dashboard(
             "Your approval to begin",
         )
 
-    if intelligence is not None and approved_asset_count == 0:
+    if not strategy_ready:
         research_worker = DashboardWorker(
             "Research Worker",
-            "Waiting for you",
-            "I'm waiting for approved sponsorship assets.",
+            "Waiting",
+            "I'm waiting for the approved strategy before I begin research.",
+            DashboardAction(),
+            "Waiting on",
+            "Strategy and eligibility approval",
+        )
+    elif intelligence is not None and approved_asset_count == 0:
+        research_worker = DashboardWorker(
+            "Research Worker",
+            "Waiting",
+            "I'm waiting for strategy approval.",
             DashboardAction(
-                "Review assets",
-                "sponsorship_asset_review",
+                "Review Strategy",
+                "strategy_work",
             ),
             "Waiting on",
-            "Your sponsorship asset approval",
+            "Your strategy approval",
         )
     elif research_blocked:
         research_worker = DashboardWorker(
@@ -693,15 +929,7 @@ def build_dashboard(
                 f"I've found {len(prospect_list)} evidence-backed sponsor "
                 "prospect(s)."
             ),
-            (
-                DashboardAction(
-                    "Review prospects",
-                    "prospects",
-                    route_params={"category": category},
-                )
-                if category
-                else DashboardAction()
-            ),
+            DashboardAction("Open pipeline", "show_pipeline"),
             "Current task",
             "Prospects ready for review",
         )
@@ -712,9 +940,7 @@ def build_dashboard(
             "I'm ready to research your highest-priority sponsor category.",
             DashboardAction(
                 "Research sponsors",
-                "prospects",
-                "POST",
-                {"category": top_category.slug},
+                "research_worker",
             ),
             "Current task",
             f"Research {getattr(top_category, 'category', 'approved sponsors')}",
@@ -729,7 +955,16 @@ def build_dashboard(
             "Strategy and eligibility approval",
         )
 
-    if outreach_waiting:
+    if not strategy_ready:
+        outreach_worker = DashboardWorker(
+            "Outreach Worker",
+            "Waiting",
+            "I'm waiting for approved sponsor research before outreach begins.",
+            DashboardAction(),
+            "Waiting on",
+            "Strategy and sponsor research",
+        )
+    elif outreach_waiting:
         outreach_worker = DashboardWorker(
             "Outreach Worker",
             "Waiting for you",
@@ -767,7 +1002,16 @@ def build_dashboard(
             "An approved sponsor opportunity",
         )
 
-    if overdue_follow_ups:
+    if not strategy_ready:
+        pipeline_worker = DashboardWorker(
+            "Pipeline Worker",
+            "Waiting",
+            "I'm waiting for the sponsorship workflow to reach the pipeline.",
+            DashboardAction(),
+            "Waiting on",
+            "Strategy, research, and outreach",
+        )
+    elif overdue_follow_ups:
         pipeline_worker = DashboardWorker(
             "Pipeline Worker",
             "Action required",
@@ -806,18 +1050,38 @@ def build_dashboard(
         )
 
     top_priority = _top_priority(
+        organization=organization,
+        initiative=initiative,
         intelligence=intelligence,
         generation_job=generation_job,
         eligibility=eligibility,
         top_category=top_category,
         meeting_complete=meeting_complete,
         approved_asset_count=approved_asset_count,
+        assignments=assignment_list,
         prospects=prospect_list,
         opportunities=opportunity_list,
         overdue_follow_ups=overdue_follow_ups,
         outreach_waiting=outreach_waiting,
     )
     next_title, next_message = _whats_next(top_priority)
+    workers = [
+        strategy_worker,
+        research_worker,
+        outreach_worker,
+        pipeline_worker,
+    ]
+    for index, worker in enumerate(workers):
+        if worker.name == top_priority.worker_name:
+            workers[index] = DashboardWorker(
+                name=top_priority.worker_name,
+                status=top_priority.status,
+                message=top_priority.message,
+                action=top_priority.action,
+                detail_label="Current stage",
+                detail=top_priority.title,
+            )
+            break
 
     return DashboardView(
         greeting=_greeting(current.hour, getattr(organization, "sender_name", None)),
@@ -829,12 +1093,7 @@ def build_dashboard(
         next_title=next_title,
         next_message=next_message,
         progress=progress,
-        workers=(
-            strategy_worker,
-            research_worker,
-            outreach_worker,
-            pipeline_worker,
-        ),
+        workers=tuple(workers),
         recent_activity=_build_recent_activity(
             intelligence,
             generation_job,

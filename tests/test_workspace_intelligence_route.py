@@ -465,7 +465,8 @@ def test_workspace_template_is_dashboard_without_long_form_reports():
     ).read()
 
     assert "MARSHA AI OFFICE" in template
-    assert "TOP PRIORITY" in template
+    assert "dashboard.top_priority.worker_name" in template
+    assert "dashboard.top_priority.worker_icon" in template
     assert "Your Team’s Status" in template
     assert "dashboard.workers" in template
     assert "setInterval(checkStatus, 5000)" in template

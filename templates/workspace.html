@@ -44,9 +44,21 @@
         aria-labelledby="priority-heading"
         id="dashboard-priority"
       >
-        <div class="priority-icon" aria-hidden="true">⚡</div>
+        <div
+          class="priority-icon priority-icon-{{ dashboard.top_priority.worker_icon }}"
+          aria-hidden="true"
+        >
+          {% if dashboard.top_priority.worker_icon == 'organization' %}⌂
+          {% elif dashboard.top_priority.worker_icon == 'strategy' %}◎
+          {% elif dashboard.top_priority.worker_icon == 'research' %}⌕
+          {% elif dashboard.top_priority.worker_icon == 'outreach' %}✉
+          {% else %}▽{% endif %}
+        </div>
         <div class="priority-copy">
-          <p class="dashboard-kicker">TOP PRIORITY</p>
+          <p class="dashboard-kicker">
+            {{ dashboard.top_priority.worker_name }} ·
+            {{ dashboard.top_priority.status }}
+          </p>
           <h2 id="priority-heading">{{ dashboard.top_priority.title }}</h2>
           <p>{{ dashboard.top_priority.message }}</p>
           {% if dashboard.top_priority.supporting_line %}
