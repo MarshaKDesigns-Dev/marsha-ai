@@ -34,6 +34,15 @@ DEFAULT_MODEL = os.getenv("OPENAI_MODEL", "gpt-5-mini")
 class ResearchPriorityGenerationError(RuntimeError):
     """Raised when research priority generation cannot be completed."""
 
+    def __init__(
+        self,
+        message: str,
+        *,
+        validation_details: dict[str, Any] | None = None,
+    ) -> None:
+        super().__init__(message)
+        self.validation_details = validation_details or {}
+
 
 class ResearchPriorityRecommendation(BaseModel):
     """A validated research priority recommendation."""
@@ -182,6 +191,12 @@ class ResearchPrioritySet(BaseModel):
         )
 
 
+class ResearchPriorityDraftSet(BaseModel):
+    """Transport schema before application-owned references are bound."""
+
+    priorities: list[ResearchPriorityRecommendation] = Field(min_length=1)
+
+
 SYSTEM_INSTRUCTIONS = """
 You are the Research Priority Worker for a professional sponsorship management
 platform.
@@ -211,6 +226,11 @@ Follow these rules:
     leagues, community organizations, conferences, and events.
 15. Do not generate company names, contacts, email addresses, pricing,
     proposals, or outreach messages.
+16. Return priorities in the exact order of the supplied sponsor categories,
+    ordered by their supplied priority.
+17. Category slugs, priority numbers, and recommended asset names are reference
+    fields. Copy them exactly; the application will bind them to validated
+    category and asset records before persistence.
 """
 
 
@@ -491,6 +511,8 @@ VALIDATED SPONSORSHIP ASSETS
 
 
 Create exactly one research priority for each supplied sponsor category.
+Return them in the same order as the supplied categories when sorted by their
+supplied priority.
 
 Every research priority must include:
 
@@ -509,6 +531,117 @@ Use only the category slugs and sponsorship asset names supplied above.
 Do not generate company names, contacts, email addresses, pricing, proposals,
 or outreach copy.
 """.strip()
+
+
+def _bind_validated_references(
+    result: ResearchPrioritySet,
+    categories: SponsorCategorySet,
+    assets: SponsorshipAssetSet,
+) -> ResearchPrioritySet:
+    """Bind AI narrative output to application-owned category and asset keys."""
+
+    ordered_categories = sorted(
+        categories.categories,
+        key=lambda category: (category.priority, category.slug),
+    )
+    ordered_priorities = sorted(
+        result.priorities,
+        key=lambda priority: priority.priority,
+    )
+
+    asset_names_by_category = {
+        category.slug: [
+            asset.name
+            for asset in assets.assets
+            if category.slug in asset.recommended_for_categories
+        ]
+        for category in ordered_categories
+    }
+    missing_asset_categories = [
+        slug
+        for slug, asset_names in asset_names_by_category.items()
+        if not asset_names
+    ]
+    if missing_asset_categories:
+        raise ResearchPriorityGenerationError(
+            "Validated sponsor categories must reference at least one "
+            "sponsorship asset.",
+            validation_details={
+                "categories_without_assets": missing_asset_categories,
+            },
+        )
+
+    generated_by_slug = {}
+    for generated in ordered_priorities:
+        normalized_slug = generated.category_slug.strip().casefold()
+        generated_by_slug.setdefault(normalized_slug, generated)
+
+    def deterministic_priority(category):
+        asset_names = asset_names_by_category[category.slug]
+        asset_label = ", ".join(asset_names)
+        return ResearchPriorityRecommendation(
+            category_slug=category.slug,
+            priority=1,
+            ideal_sponsor_profile=category.ideal_sponsor_profile,
+            research_direction=category.research_direction,
+            qualification_signals=[
+                (
+                    f"Documented alignment with {category.category} and the "
+                    "initiative's audience, needs, or community purpose."
+                ),
+                (
+                    "Current, credible evidence of geographic relevance or "
+                    "community, sponsorship, marketing, or recruitment activity."
+                ),
+            ],
+            verification_requirements=[
+                (
+                    "Verify the prospect's current products, services, "
+                    "geographic footprint, and relevant decision-making function."
+                ),
+                (
+                    "Confirm sponsorship or community activity through current "
+                    "first-party or otherwise credible sources."
+                ),
+            ],
+            disqualification_signals=[
+                (
+                    "The prospect conflicts with a deterministic exclusion or "
+                    "has no credible connection to the initiative."
+                ),
+                (
+                    "Available evidence is outdated, unsupported, or does not "
+                    "substantiate the proposed partnership fit."
+                ),
+            ],
+            recommended_asset_names=asset_names,
+            outreach_angle=(
+                f"Assess whether {category.category} prospects can credibly "
+                f"support {asset_label} in exchange for the validated sponsor "
+                f"value described by the initiative. Category fit: {category.fit}"
+            ),
+        )
+
+    return ResearchPrioritySet(
+        priorities=[
+            (
+                generated_by_slug.get(category.slug.casefold())
+                or deterministic_priority(category)
+            ).model_copy(
+                update={
+                    "category_slug": category.slug,
+                    "priority": index,
+                    "recommended_asset_names": asset_names_by_category[
+                        category.slug
+                    ],
+                }
+            )
+            for index, category in enumerate(
+                ordered_categories,
+                start=1,
+            )
+        ]
+    )
 
 
 def _validate_cross_references(
@@ -535,7 +668,11 @@ def _validate_cross_references(
 
     if result_category_slugs != allowed_category_slugs:
         raise ResearchPriorityGenerationError(
-            "Research priorities must cover every sponsor category exactly once."
+            "Research priorities must cover every sponsor category exactly once.",
+            validation_details={
+                "expected_category_slugs": sorted(allowed_category_slugs),
+                "received_category_slugs": sorted(result_category_slugs),
+            },
         )
 
     for item in result.priorities:
@@ -545,7 +682,12 @@ def _validate_cross_references(
 
         if invalid_asset_names:
             raise ResearchPriorityGenerationError(
-                "Research priorities referenced unknown sponsorship assets."
+                "Research priorities referenced unknown sponsorship assets.",
+                validation_details={
+                    "category_slug": item.category_slug,
+                    "unknown_asset_names": sorted(invalid_asset_names),
+                    "allowed_asset_names": sorted(allowed_asset_names),
+                },
             )
 
 
@@ -587,13 +729,16 @@ def generate_research_priorities(
             model=selected_model,
             instructions=SYSTEM_INSTRUCTIONS,
             input=prompt,
-            text_format=ResearchPrioritySet,
+            text_format=ResearchPriorityDraftSet,
         )
     except GenerationStepTimeoutError:
         raise
     except Exception as exc:
         raise ResearchPriorityGenerationError(
-            "The research priority request could not be completed."
+            "The research priority request could not be completed.",
+            validation_details={
+                "cause_type": type(exc).__name__,
+            },
         ) from exc
 
     parsed_result = getattr(
@@ -607,22 +752,32 @@ def generate_research_priorities(
             "OpenAI returned no structured research priorities."
         )
 
-    if isinstance(parsed_result, ResearchPrioritySet):
+    if isinstance(
+        parsed_result,
+        (ResearchPrioritySet, ResearchPriorityDraftSet),
+    ):
         result = parsed_result
     else:
         try:
-            result = ResearchPrioritySet.model_validate(
+            result = ResearchPriorityDraftSet.model_validate(
                 parsed_result
             )
         except ValidationError as exc:
             raise ResearchPriorityGenerationError(
-                "OpenAI returned invalid research priorities."
+                "OpenAI returned invalid research priorities.",
+                validation_details={
+                    "schema_errors": exc.errors(
+                        include_url=False,
+                        include_input=False,
+                    ),
+                },
             ) from exc
 
-    _validate_cross_references(
+    result = _bind_validated_references(
         result,
         categories,
         assets,
     )
+    _validate_cross_references(result, categories, assets)
 
     return result

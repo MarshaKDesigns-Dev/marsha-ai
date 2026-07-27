@@ -7,7 +7,10 @@ import pytest
 from pydantic import ValidationError
 
 from services.organization_analysis import OrganizationAnalysis
-from services.research_priorities import ResearchPrioritySet
+from services.research_priorities import (
+    ResearchPriorityGenerationError,
+    ResearchPrioritySet,
+)
 from services.sponsor_eligibility import SponsorEligibilityAnalysis
 from services.sponsor_categories import SponsorCategorySet
 from services.sponsorship_assets import SponsorshipAssetSet
@@ -18,6 +21,46 @@ from services.sponsorship_intelligence import (
     generate_sponsorship_intelligence,
 )
 from services.sponsorship_strategy import SponsorshipStrategy
+
+
+def test_research_priority_failure_preserves_internal_validation_details(
+    organization,
+    initiative,
+    analysis,
+    strategy,
+    categories,
+    assets,
+    eligibility,
+):
+    failure = ResearchPriorityGenerationError(
+        "Research priorities must cover every sponsor category exactly once.",
+        validation_details={
+            "expected_category_count": 3,
+            "received_priority_count": 2,
+        },
+    )
+
+    with pytest.raises(SponsorshipIntelligenceError) as raised:
+        generate_sponsorship_intelligence(
+            organization,
+            initiative,
+            organization_analysis_worker=Mock(return_value=analysis),
+            sponsorship_strategy_worker=Mock(return_value=strategy),
+            sponsor_category_worker=Mock(return_value=categories),
+            sponsorship_asset_worker=Mock(return_value=assets),
+            sponsor_eligibility_engine=Mock(return_value=eligibility),
+            research_priority_worker=Mock(side_effect=failure),
+        )
+
+    assert raised.value.error_code == "research_priorities_invalid"
+    assert raised.value.generation_step == "research_priorities"
+    assert raised.value.failure_details["validation_details"] == {
+        "expected_category_count": 3,
+        "received_priority_count": 2,
+    }
+    assert "cover every sponsor category" in (
+        raised.value.failure_details["validation_error"]
+    )
 
 
 @pytest.fixture

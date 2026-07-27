@@ -103,6 +103,14 @@ def _classify_failure(
             details["provider_request_id"] = str(request_id)
         if isinstance(status_code, int):
             details["provider_http_status"] = status_code
+        validation_details = getattr(item, "validation_details", None)
+        if validation_details:
+            details["validation_details"] = validation_details
+        if type(item).__name__ in {
+            "ResearchPriorityGenerationError",
+            "ValidationError",
+        }:
+            details["validation_error"] = str(item)
 
     if "RateLimitError" in names:
         return (

@@ -7,6 +7,7 @@ from openai import APITimeoutError
 from services.organization_analysis import OrganizationAnalysis
 from services.openai_generation_timeout import GenerationStepTimeoutError
 from services.research_priorities import (
+    ResearchPriorityDraftSet,
     ResearchPriorityGenerationError,
     ResearchPriorityRecommendation,
     ResearchPrioritySet,
@@ -492,12 +493,144 @@ def test_generate_returns_model(
     assert client.responses.last_kwargs["model"] == "test-model"
     assert (
         client.responses.last_kwargs["text_format"]
-        is ResearchPrioritySet
+        is ResearchPriorityDraftSet
     )
     assert client.last_options == {
         "timeout": 90.0,
         "max_retries": 0,
     }
+
+
+def test_generation_binds_model_references_to_validated_inputs(
+    organization,
+    initiative,
+    analysis,
+    strategy,
+    categories,
+    assets,
+    research,
+):
+    """Model-copied reference text must never become persisted identifiers."""
+
+    malformed_references = ResearchPrioritySet(
+        priorities=[
+            item.model_copy(
+                update={
+                    "category_slug": f"reformatted-{index}",
+                    "priority": index,
+                    "recommended_asset_names": [
+                        f"Reformatted Asset {index}"
+                    ],
+                }
+            )
+            for index, item in enumerate(
+                reversed(research.priorities),
+                start=1,
+            )
+        ]
+    )
+
+    result = generate_research_priorities(
+        organization,
+        initiative,
+        analysis,
+        strategy,
+        categories,
+        assets,
+        client=FakeClient(parsed=malformed_references),
+    )
+
+    ordered_categories = sorted(
+        categories.categories,
+        key=lambda category: (category.priority, category.slug),
+    )
+    assert [item.category_slug for item in result.priorities] == [
+        category.slug for category in ordered_categories
+    ]
+    assert [item.priority for item in result.priorities] == [1, 2, 3]
+    for item in result.priorities:
+        assert item.recommended_asset_names == [
+            asset.name
+            for asset in assets.assets
+            if item.category_slug in asset.recommended_for_categories
+        ]
+
+
+def test_generation_accepts_duplicate_model_reference_fields_before_binding(
+    organization,
+    initiative,
+    analysis,
+    strategy,
+    categories,
+    assets,
+    research,
+):
+    duplicated_references = ResearchPriorityDraftSet(
+        priorities=[
+            item.model_copy(
+                update={
+                    "category_slug": "model-repeated-this-slug",
+                    "priority": 1,
+                    "recommended_asset_names": ["Model Renamed Asset"],
+                }
+            )
+            for item in research.priorities
+        ]
+    )
+
+    result = generate_research_priorities(
+        organization,
+        initiative,
+        analysis,
+        strategy,
+        categories,
+        assets,
+        client=FakeClient(parsed=duplicated_references),
+    )
+
+    assert isinstance(result, ResearchPrioritySet)
+    assert [item.priority for item in result.priorities] == [1, 2, 3]
+    assert len({item.category_slug for item in result.priorities}) == 3
+
+
+def test_generation_completes_missing_priorities_from_validated_inputs(
+    organization,
+    initiative,
+    analysis,
+    strategy,
+    categories,
+    assets,
+    research,
+):
+    client = FakeClient(
+        parsed=ResearchPrioritySet(
+            priorities=research.priorities[:-1],
+        )
+    )
+
+    result = generate_research_priorities(
+        organization,
+        initiative,
+        analysis,
+        strategy,
+        categories,
+        assets,
+        client=client,
+    )
+
+    assert len(result.priorities) == 3
+    assert {item.category_slug for item in result.priorities} == {
+        category.slug for category in categories.categories
+    }
+    completed = result.priorities[-1]
+    source_category = sorted(
+        categories.categories,
+        key=lambda category: (category.priority, category.slug),
+    )[-1]
+    assert completed.ideal_sponsor_profile == (
+        source_category.ideal_sponsor_profile
+    )
+    assert completed.research_direction == source_category.research_direction
 
 
 def test_missing_response_raises(
