@@ -8,7 +8,7 @@ from services.sponsor_eligibility_gate import (
 )
 
 
-def test_generation_route_enqueues_without_synchronous_generation(monkeypatch):
+def test_generation_route_runs_inline_and_redirects_to_strategy(monkeypatch):
     organization = SimpleNamespace(id=1)
     initiative = SimpleNamespace(id=10, organization_id=1)
     calls = []
@@ -24,21 +24,14 @@ def test_generation_route_enqueues_without_synchronous_generation(monkeypatch):
         lambda: initiative,
     )
 
-    def enqueue(org, init, *, regenerate=False):
+    def generate(org, init, *, regenerate=False):
         calls.append((org.id, init.id, regenerate))
-        return SimpleNamespace(status="pending"), True
+        return SimpleNamespace(success=True)
 
     monkeypatch.setattr(
         app_module,
-        "enqueue_workspace_intelligence_generation",
-        enqueue,
-    )
-    monkeypatch.setattr(
-        app_module,
-        "run_workspace_intelligence_generation",
-        lambda *args, **kwargs: (_ for _ in ()).throw(
-            AssertionError("synchronous generation must not run")
-        ),
+        "run_inline_workspace_intelligence_generation",
+        generate,
     )
 
     with app_module.app.test_request_context(
@@ -51,7 +44,7 @@ def test_generation_route_enqueues_without_synchronous_generation(monkeypatch):
 
     assert calls == [(1, 10, False)]
     assert response.status_code == 302
-    assert response.location.endswith("/workspace")
+    assert response.location.endswith("/workspace/strategy")
 
 
 def test_generation_route_passes_explicit_regenerate(monkeypatch):
@@ -70,14 +63,14 @@ def test_generation_route_passes_explicit_regenerate(monkeypatch):
         lambda: initiative,
     )
 
-    def enqueue(org, init, *, regenerate=False):
+    def generate(org, init, *, regenerate=False):
         calls.append((org.id, init.id, regenerate))
-        return SimpleNamespace(status="pending"), True
+        return SimpleNamespace(success=True)
 
     monkeypatch.setattr(
         app_module,
-        "enqueue_workspace_intelligence_generation",
-        enqueue,
+        "run_inline_workspace_intelligence_generation",
+        generate,
     )
 
     with app_module.app.test_request_context(
@@ -106,11 +99,8 @@ def test_duplicate_generation_route_flashes_already_in_progress(monkeypatch):
     )
     monkeypatch.setattr(
         app_module,
-        "enqueue_workspace_intelligence_generation",
-        lambda *args, **kwargs: (
-            SimpleNamespace(status="processing"),
-            False,
-        ),
+        "run_inline_workspace_intelligence_generation",
+        lambda *args, **kwargs: None,
     )
 
     with app_module.app.test_request_context(
@@ -148,7 +138,7 @@ def test_generation_route_rejects_ownership_mismatch(monkeypatch):
     )
     monkeypatch.setattr(
         app_module,
-        "enqueue_workspace_intelligence_generation",
+        "run_inline_workspace_intelligence_generation",
         lambda *args, **kwargs: enqueue_calls.append(args),
     )
 
@@ -184,7 +174,7 @@ def test_generation_started_message_renders_after_redirect(monkeypatch):
         fundraising_target="Not set",
         deadline=None,
     )
-    started_message = "Sponsorship intelligence generation started."
+    started_message = "Your strategy is ready for review."
 
     monkeypatch.setattr(
         app_module,
@@ -198,11 +188,8 @@ def test_generation_started_message_renders_after_redirect(monkeypatch):
     )
     monkeypatch.setattr(
         app_module,
-        "enqueue_workspace_intelligence_generation",
-        lambda *args, **kwargs: (
-            SimpleNamespace(status="pending"),
-            True,
-        ),
+        "run_inline_workspace_intelligence_generation",
+        lambda *args, **kwargs: SimpleNamespace(success=True),
     )
     monkeypatch.setattr(
         app_module,
@@ -253,17 +240,12 @@ def test_generation_started_message_renders_after_redirect(monkeypatch):
     )
 
     client = app_module.app.test_client()
-    response = client.post(
-        "/workspace/generate-intelligence",
-        follow_redirects=True,
-    )
+    response = client.post("/workspace/generate-intelligence")
 
-    html = response.get_data(as_text=True)
-    assert response.status_code == 200
-    assert response.request.path == "/workspace"
-    assert started_message in html
-    assert 'class="alert alert-success"' in html
-    assert "I&#39;m building your sponsorship strategy now." in html
+    assert response.status_code == 302
+    assert response.location.endswith("/workspace/strategy")
+    with client.session_transaction() as browser_session:
+        assert ("success", started_message) in browser_session["_flashes"]
 
 
 def test_workspace_builds_dashboard_from_existing_records(monkeypatch):

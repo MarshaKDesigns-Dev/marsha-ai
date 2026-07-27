@@ -1,0 +1,73 @@
+{% extends "base.html" %}
+
+{% block title %}Strategy Work · Marsha AI Sponsorship Coordinator{% endblock %}
+
+{% block content %}
+<section class="page-header">
+  <p class="eyebrow">STRATEGY WORKER · READY FOR REVIEW</p>
+  <h1>Your sponsorship strategy</h1>
+  <p>
+    Review the strategy and recommended sponsorship assets for
+    {{ initiative.name }} before sponsor research begins.
+  </p>
+</section>
+
+<section class="workspace-section">
+  <h2>Strategy summary</h2>
+  <p>{{ strategy.get('positioning_statement', '') }}</p>
+  <p><strong>Strategic theme:</strong> {{ strategy.get('strategic_theme', '') }}</p>
+  <p>{{ strategy.get('recommended_approach', '') }}</p>
+</section>
+
+<section class="workspace-section">
+  <h2>Priorities</h2>
+  <ul>
+    {% for objective in strategy.get('objectives', []) %}
+    <li>
+      <strong>{{ objective.get('objective', objective.get('name', 'Priority')) }}</strong>
+      {% if objective.get('rationale') %} — {{ objective.get('rationale') }}{% endif %}
+    </li>
+    {% endfor %}
+  </ul>
+</section>
+
+<section class="workspace-section">
+  <h2>Recommended sponsor categories</h2>
+  <ul>
+    {% for category in categories %}
+    <li><strong>{{ category.category }}</strong> — {{ category.fit }}</li>
+    {% endfor %}
+  </ul>
+</section>
+
+<section class="workspace-section">
+  <h2>Recommended sponsorship assets</h2>
+  <ul>
+    {% for asset in assets %}
+    <li>
+      <strong>{{ asset.name }}</strong>
+      {% if asset.description %} — {{ asset.description }}{% endif %}
+      {% if asset.sponsor_value %}<br>{{ asset.sponsor_value }}{% endif %}
+    </li>
+    {% endfor %}
+  </ul>
+</section>
+
+<section class="workspace-section">
+  <h2>Concerns and constraints</h2>
+  <p>{{ initiative.strategy_concerns_constraints }}</p>
+  {% if strategy.get('risks_or_constraints') %}
+  <ul>
+    {% for concern in strategy.get('risks_or_constraints', []) %}
+    <li>{{ concern }}</li>
+    {% endfor %}
+  </ul>
+  {% endif %}
+</section>
+
+<form method="post" action="{{ url_for('approve_strategy_work') }}">
+  <button class="btn btn-primary btn-lg" type="submit">
+    Approve Strategy and Continue
+  </button>
+</form>
+{% endblock %}

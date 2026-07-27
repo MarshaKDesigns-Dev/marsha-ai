@@ -189,6 +189,23 @@ def build_sponsorship_context(organization: Any, initiative: Any) -> dict[str, A
             getattr(organization, "businesses_never_contact_json", "[]")
         ),
         "community": str(getattr(initiative, "audience", "") or "").strip(),
+        "strategy_top_priorities": str(
+            getattr(initiative, "strategy_top_priorities", "") or ""
+        ).strip(),
+        "strategy_priority_sponsors": str(
+            getattr(initiative, "strategy_priority_sponsors", "") or ""
+        ).strip(),
+        "strategy_success_beyond_fundraising": str(
+            getattr(
+                initiative,
+                "strategy_success_beyond_fundraising",
+                "",
+            )
+            or ""
+        ).strip(),
+        "strategy_concerns_constraints": str(
+            getattr(initiative, "strategy_concerns_constraints", "") or ""
+        ).strip(),
     }
 
 
@@ -225,6 +242,22 @@ def format_sponsorship_context(organization: Any, initiative: Any) -> str:
             (
                 "Businesses never contact: "
                 f"{context['businesses_never_contact']}"
+            ),
+            (
+                "Strategy Meeting — top three priorities: "
+                f"{context['strategy_top_priorities'] or 'Not provided'}"
+            ),
+            (
+                "Strategy Meeting — sponsors to pursue first: "
+                f"{context['strategy_priority_sponsors'] or 'Not provided'}"
+            ),
+            (
+                "Strategy Meeting — success beyond fundraising: "
+                f"{context['strategy_success_beyond_fundraising'] or 'Not provided'}"
+            ),
+            (
+                "Strategy Meeting — concerns or constraints: "
+                f"{context['strategy_concerns_constraints'] or 'Not provided'}"
             ),
         )
     )

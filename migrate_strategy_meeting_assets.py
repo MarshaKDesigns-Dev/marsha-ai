@@ -4,6 +4,9 @@ from sqlalchemy import inspect, text
 
 from app import app, db
 from migrate_phase1_context import run_migration as run_phase1_migration
+from migrate_strategy_meeting_answers import (
+    run_migration as run_strategy_answer_migration,
+)
 
 
 INITIATIVE_COLUMNS = {
@@ -52,3 +55,4 @@ def run_migration() -> None:
 if __name__ == "__main__":
     run_migration()
     run_phase1_migration()
+    run_strategy_answer_migration()

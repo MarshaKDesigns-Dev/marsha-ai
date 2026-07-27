@@ -67,6 +67,10 @@ def test_shared_context_includes_needs_and_relationship_rules():
         geographic_radius_miles=None,
         dream_sponsors_json='["Dream Co"]',
         audience="Students ages 14-18",
+        strategy_top_priorities="Scholarships, visibility, relationships",
+        strategy_priority_sponsors="Local Bank",
+        strategy_success_beyond_fundraising="Stronger alumni engagement",
+        strategy_concerns_constraints="Volunteer capacity",
     )
 
     context = build_sponsorship_context(organization, initiative)
@@ -78,3 +82,11 @@ def test_shared_context_includes_needs_and_relationship_rules():
     assert "workforce development" in context["industry_mapping"]
     assert context["dream_sponsors"] == ["Dream Co"]
     assert context["businesses_never_contact"] == ["Blocked Co"]
+    assert context["strategy_top_priorities"] == (
+        "Scholarships, visibility, relationships"
+    )
+    assert context["strategy_priority_sponsors"] == "Local Bank"
+    assert context["strategy_success_beyond_fundraising"] == (
+        "Stronger alumni engagement"
+    )
+    assert context["strategy_concerns_constraints"] == "Volunteer capacity"

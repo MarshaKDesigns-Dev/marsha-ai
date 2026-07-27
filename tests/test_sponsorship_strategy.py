@@ -70,6 +70,10 @@ def initiative():
         audience="Families, students, artists, and local residents",
         needs="Financial sponsors and in-kind community partners",
         goals="Expand programming and increase community participation",
+        strategy_top_priorities="Visibility, funding, lasting partnerships",
+        strategy_priority_sponsors="Regional Bank",
+        strategy_success_beyond_fundraising="More community participation",
+        strategy_concerns_constraints="Limited staff capacity",
     )
 
 
@@ -193,6 +197,10 @@ def test_build_strategy_prompt_contains_required_context(
     assert analysis.organization_summary in prompt
     assert analysis.sponsor_value_proposition in prompt
     assert "Confirmed attendance projections are not available" in prompt
+    assert "Visibility, funding, lasting partnerships" in prompt
+    assert "Regional Bank" in prompt
+    assert "More community participation" in prompt
+    assert "Limited staff capacity" in prompt
 
 
 def test_missing_organization_name_raises(

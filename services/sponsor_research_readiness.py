@@ -16,6 +16,15 @@ from services.sponsor_eligibility_rules_v1 import (
 
 
 APPROVAL_STATUSES = frozenset({"Pending", "Approved", "Rejected"})
+STRATEGY_MEETING_ANSWER_FIELDS = (
+    ("strategy_top_priorities", "top three priorities"),
+    ("strategy_priority_sponsors", "sponsors to pursue first"),
+    (
+        "strategy_success_beyond_fundraising",
+        "success beyond fundraising",
+    ),
+    ("strategy_concerns_constraints", "concerns or constraints"),
+)
 
 
 @dataclass(frozen=True)
@@ -50,12 +59,36 @@ def strategy_meeting_is_complete(
     initiative: Any,
     intelligence: Any = None,
 ) -> bool:
-    """Treat legacy generated intelligence as completed meeting context."""
+    """Require the four focused answers, with legacy intelligence support."""
 
     return bool(
-        getattr(initiative, "strategy_meeting_completed_at", None)
-        or intelligence is not None
+        intelligence is not None
+        or (
+            getattr(initiative, "strategy_meeting_completed_at", None)
+            and not missing_strategy_meeting_answers(initiative)
+        )
     )
+
+
+def missing_strategy_meeting_answers(
+    initiative: Any = None,
+    *,
+    answers: dict[str, Any] | None = None,
+) -> list[str]:
+    """Return customer-facing labels for missing focused meeting answers."""
+
+    values = answers or {}
+    return [
+        label
+        for field_name, label in STRATEGY_MEETING_ANSWER_FIELDS
+        if not str(
+            values.get(
+                field_name,
+                getattr(initiative, field_name, ""),
+            )
+            or ""
+        ).strip()
+    ]
 
 
 def evaluate_sponsor_research_readiness(

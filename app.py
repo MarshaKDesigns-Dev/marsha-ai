@@ -1,6 +1,7 @@
 
 
 import os, json, smtplib, sys
+from types import SimpleNamespace
 from email.message import EmailMessage
 from datetime import UTC, date, datetime, timedelta
 from time import monotonic
@@ -16,6 +17,7 @@ from services.sponsor_eligibility_gate import (
 from services.sponsor_research_readiness import (
     audience_age_context_is_clear,
     evaluate_sponsor_research_readiness,
+    missing_strategy_meeting_answers,
     validate_approval_status,
 )
 from services.sponsorship_context import (
@@ -233,6 +235,10 @@ class SponsorshipInitiative(db.Model):
     goals = db.Column(db.Text)
     sponsorship_goals = db.Column(db.Text)
     estimated_reach = db.Column(db.Text)
+    strategy_top_priorities = db.Column(db.Text)
+    strategy_priority_sponsors = db.Column(db.Text)
+    strategy_success_beyond_fundraising = db.Column(db.Text)
+    strategy_concerns_constraints = db.Column(db.Text)
     strategy_meeting_completed_at = db.Column(db.DateTime)
     status = db.Column(db.String(50), default="Active")
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
@@ -1119,7 +1125,8 @@ def run_workspace_intelligence_generation(
     organization_id,
     initiative_id,
     *,
-    regenerate=False
+    regenerate=False,
+    workflow_budget_seconds=None,
 ):
     """Call the workspace application service without a circular import."""
 
@@ -1127,10 +1134,15 @@ def run_workspace_intelligence_generation(
         generate_workspace_intelligence,
     )
 
+    options = {
+        "regenerate": regenerate,
+    }
+    if workflow_budget_seconds is not None:
+        options["workflow_budget_seconds"] = workflow_budget_seconds
     return generate_workspace_intelligence(
         organization_id,
         initiative_id,
-        regenerate=regenerate,
+        **options,
     )
 
 
@@ -1149,6 +1161,70 @@ def enqueue_workspace_intelligence_generation(
         initiative,
         regenerate=regenerate,
     )
+
+
+def run_inline_workspace_intelligence_generation(
+    organization,
+    initiative,
+    *,
+    regenerate=False,
+):
+    """Generate the active initiative now while retaining durable job state."""
+
+    from services.sponsorship_intelligence_jobs import (
+        mark_completed,
+        mark_failed,
+        mark_processing,
+    )
+
+    job, created = enqueue_workspace_intelligence_generation(
+        organization,
+        initiative,
+        regenerate=regenerate,
+    )
+    if not created and getattr(job, "status", None) == "processing":
+        return None
+
+    now = datetime.now(UTC)
+    mark_processing(
+        job,
+        worker_id=f"inline-web:{os.getpid()}",
+        lease_seconds=600,
+        now=now,
+    )
+    db.session.commit()
+
+    try:
+        result = run_workspace_intelligence_generation(
+            organization.id,
+            initiative.id,
+            regenerate=regenerate,
+            workflow_budget_seconds=float(
+                os.getenv("BACKGROUND_WORKFLOW_BUDGET_SECONDS", "240")
+            ),
+        )
+    except Exception:
+        db.session.rollback()
+        message = (
+            "Strategy generation stopped unexpectedly. Please try again."
+        )
+        mark_failed(
+            job,
+            message=message,
+            error_code="unexpected_inline_generation_error",
+        )
+        return SimpleNamespace(success=False, message=message)
+    if result.success:
+        mark_completed(job)
+    else:
+        mark_failed(
+            job,
+            message=result.message,
+            error_code=result.error_code or result.status,
+            generation_step=result.generation_step,
+            failure_details=result.failure_details,
+        )
+    return result
 
 
 def get_workspace_intelligence_job(organization, initiative):
@@ -1772,56 +1848,24 @@ def strategy_meeting():
 
     if request.method == "POST":
         fields = {
-            "sponsorship_goals": request.form.get(
-                "sponsorship_goals",
+            "strategy_top_priorities": request.form.get(
+                "strategy_top_priorities",
                 "",
             ).strip(),
-            "audience": request.form.get("audience", "").strip(),
-            "estimated_reach": request.form.get(
-                "estimated_reach",
+            "strategy_priority_sponsors": request.form.get(
+                "strategy_priority_sponsors",
                 "",
             ).strip(),
-            "needs": request.form.get("needs", "").strip(),
-            "goals": request.form.get("campaign_goals", "").strip(),
-            "fundraising_target": request.form.get(
-                "fundraising_target",
+            "strategy_success_beyond_fundraising": request.form.get(
+                "strategy_success_beyond_fundraising",
+                "",
+            ).strip(),
+            "strategy_concerns_constraints": request.form.get(
+                "strategy_concerns_constraints",
                 "",
             ).strip(),
         }
-        selected_needs = validate_needs(
-            request.form.getlist("sponsorship_needs")
-        )
-        deadline_value = request.form.get("deadline", "").strip()
-        missing = [
-            label
-            for key, label in (
-                ("sponsorship_goals", "sponsorship goals"),
-                ("audience", "audience"),
-                ("estimated_reach", "estimated reach"),
-                ("goals", "campaign goals"),
-                ("fundraising_target", "fundraising target"),
-            )
-            if not fields[key]
-        ]
-        if not deadline_value:
-            missing.append("deadline")
-        if not selected_needs and not fields["needs"]:
-            missing.append("sponsorship needs")
-        if fields["audience"] and not audience_age_context_is_clear(
-            fields["audience"]
-        ):
-            missing.append("audience age range")
-
-        try:
-            deadline = (
-                datetime.strptime(deadline_value, "%Y-%m-%d").date()
-                if deadline_value
-                else None
-            )
-        except ValueError:
-            deadline = None
-            if "deadline" not in missing:
-                missing.append("valid deadline")
+        missing = missing_strategy_meeting_answers(answers=fields)
 
         if missing:
             flash(
@@ -1834,36 +1878,45 @@ def strategy_meeting():
                 "strategy_meeting.html",
                 organization=organization,
                 initiative=initiative,
-                form_values={**fields, "deadline": deadline_value},
-                **_phase1_form_context(organization, initiative),
+                form_values=fields,
             )
 
         for name, value in fields.items():
             setattr(initiative, name, value)
-        _apply_phase1_context(organization, initiative)
-        initiative.deadline = deadline
         initiative.strategy_meeting_completed_at = (
             datetime.now(UTC).replace(tzinfo=None)
         )
         db.session.commit()
 
-        _, created = enqueue_workspace_intelligence_generation(
+        existing_intelligence = get_sponsorship_intelligence(
             organization,
             initiative,
-            regenerate=get_sponsorship_intelligence(
-                organization,
-                initiative,
-            )
-            is not None,
         )
+        if existing_intelligence is not None:
+            flash(
+                "Strategy Meeting answers saved. Review your strategy.",
+                "success",
+            )
+            return redirect(url_for("strategy_work"))
+
+        result = run_inline_workspace_intelligence_generation(
+            organization,
+            initiative,
+        )
+        if result is not None and result.success:
+            flash(
+                "Strategy Meeting completed. Your strategy is ready for review.",
+                "success",
+            )
+            return redirect(url_for("strategy_work"))
+
         flash(
             (
-                "Strategy Meeting completed. Your Strategy Worker has started."
-                if created
-                else "Strategy Meeting completed. Strategy work is already "
-                "in progress."
+                result.message
+                if result is not None
+                else "Strategy generation is already in progress."
             ),
-            "success" if created else "warning",
+            "warning",
         )
         return redirect(url_for("workspace"))
 
@@ -1872,8 +1925,86 @@ def strategy_meeting():
         organization=organization,
         initiative=initiative,
         form_values=None,
-        **_phase1_form_context(organization, initiative),
     )
+
+
+@app.route("/workspace/strategy")
+def strategy_work():
+    """Render generated strategy work for the active initiative."""
+
+    organization = get_active_organization()
+    initiative = get_active_initiative()
+    if (
+        organization is None
+        or initiative is None
+        or initiative.organization_id != organization.id
+    ):
+        flash(
+            "Complete organization and sponsorship initiative setup first.",
+            "warning",
+        )
+        return redirect(url_for("setup"))
+
+    intelligence = get_sponsorship_intelligence(organization, initiative)
+    if intelligence is None:
+        flash(
+            "Complete the Strategy Meeting before reviewing strategy work.",
+            "warning",
+        )
+        return redirect(url_for("strategy_meeting"))
+
+    return render_template(
+        "strategy_work.html",
+        organization=organization,
+        initiative=initiative,
+        intelligence=intelligence,
+        strategy=intelligence.sponsorship_strategy,
+        categories=get_sponsor_categories(organization, initiative),
+        assets=get_sponsorship_assets(organization, initiative),
+    )
+
+
+@app.route("/workspace/strategy/approve", methods=["POST"])
+def approve_strategy_work():
+    """Approve the generated strategy by approving its recommended assets."""
+
+    organization = get_active_organization()
+    initiative = get_active_initiative()
+    if (
+        organization is None
+        or initiative is None
+        or initiative.organization_id != organization.id
+    ):
+        flash(
+            "Complete organization and sponsorship initiative setup first.",
+            "warning",
+        )
+        return redirect(url_for("setup"))
+
+    intelligence = get_sponsorship_intelligence(organization, initiative)
+    if intelligence is None:
+        flash("There is no generated strategy to approve.", "warning")
+        return redirect(url_for("strategy_meeting"))
+
+    assets = get_sponsorship_assets(organization, initiative)
+    if not assets:
+        flash(
+            "The generated strategy has no sponsorship assets to approve.",
+            "warning",
+        )
+        return redirect(url_for("strategy_work"))
+
+    approved_at = datetime.now(UTC).replace(tzinfo=None)
+    for asset in assets:
+        if asset.approval_status == "Pending":
+            asset.approval_status = "Approved"
+            asset.approval_updated_at = approved_at
+    db.session.commit()
+    flash(
+        "Strategy approved. Choose the first sponsorship asset to research.",
+        "success",
+    )
+    return redirect(url_for("research_worker"))
 
 
 def _active_sponsorship_asset(asset_id):
@@ -2035,19 +2166,22 @@ def generate_workspace_sponsorship_intelligence():
         )
         return redirect(url_for("workspace"))
 
-    _, created = enqueue_workspace_intelligence_generation(
+    result = run_inline_workspace_intelligence_generation(
         organization,
         initiative,
         regenerate=request.form.get("regenerate") == "true",
     )
 
-    if created:
-        flash("Sponsorship intelligence generation started.", "success")
-    else:
+    if result is not None and result.success:
+        flash("Your strategy is ready for review.", "success")
+        return redirect(url_for("strategy_work"))
+    if result is None:
         flash(
             "Sponsorship intelligence generation is already in progress.",
             "warning",
         )
+    else:
+        flash(result.message, "warning")
     return redirect(url_for("workspace"))
 
 

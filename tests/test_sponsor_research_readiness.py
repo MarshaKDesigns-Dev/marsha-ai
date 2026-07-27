@@ -5,6 +5,7 @@ import pytest
 from services.sponsor_research_readiness import (
     audience_age_context_is_clear,
     evaluate_sponsor_research_readiness,
+    missing_strategy_meeting_answers,
     strategy_meeting_is_complete,
     validate_approval_status,
 )
@@ -39,7 +40,13 @@ def test_approval_status_accepts_only_three_controlled_values():
 
 
 def test_meeting_and_approved_asset_are_required():
-    initiative = SimpleNamespace(strategy_meeting_completed_at=None)
+    initiative = SimpleNamespace(
+        strategy_meeting_completed_at=None,
+        strategy_top_priorities="Visibility, funding, relationships",
+        strategy_priority_sponsors="Regional Bank",
+        strategy_success_beyond_fundraising="Community engagement",
+        strategy_concerns_constraints="Limited staff capacity",
+    )
     approved = SimpleNamespace(
         approval_status="Approved",
         is_active=True,
@@ -65,6 +72,41 @@ def test_meeting_and_approved_asset_are_required():
         [approved],
     )
     assert ready.allowed is True
+
+
+def test_meeting_completion_requires_only_four_focused_answers():
+    initiative = SimpleNamespace(
+        strategy_meeting_completed_at=object(),
+        strategy_top_priorities="Visibility, funding, relationships",
+        strategy_priority_sponsors="Regional Bank",
+        strategy_success_beyond_fundraising="Community engagement",
+        strategy_concerns_constraints="Limited staff capacity",
+        sponsorship_goals="",
+        audience="",
+        estimated_reach="",
+        needs="",
+        goals="",
+        fundraising_target="",
+        deadline=None,
+    )
+
+    assert missing_strategy_meeting_answers(initiative) == []
+    assert strategy_meeting_is_complete(initiative) is True
+
+
+def test_missing_focused_answer_keeps_meeting_incomplete():
+    initiative = SimpleNamespace(
+        strategy_meeting_completed_at=object(),
+        strategy_top_priorities="Visibility",
+        strategy_priority_sponsors="Regional Bank",
+        strategy_success_beyond_fundraising="Community engagement",
+        strategy_concerns_constraints=" ",
+    )
+
+    assert missing_strategy_meeting_answers(initiative) == [
+        "concerns or constraints"
+    ]
+    assert strategy_meeting_is_complete(initiative) is False
 
 
 def test_legacy_intelligence_satisfies_meeting_completion_only():
