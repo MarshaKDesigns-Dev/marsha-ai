@@ -342,6 +342,25 @@ def _is_overdue_follow_up(opportunity: Any, today: date) -> bool:
     )
 
 
+def _has_usable_contact(opportunity: Any) -> bool:
+    return any(
+        (
+            getattr(opportunity, "email", None),
+            getattr(opportunity, "phone", None),
+            getattr(opportunity, "contact_url", None),
+        )
+    )
+
+
+def _outreach_is_available(opportunity: Any) -> bool:
+    return bool(
+        getattr(opportunity, "stage", None) == "Research Approved"
+        and _has_usable_contact(opportunity)
+        and not getattr(opportunity, "outreach", None)
+        and not getattr(opportunity, "reviewed_message", None)
+    )
+
+
 def _top_priority(
     *,
     organization: Any,
@@ -595,6 +614,31 @@ def _top_priority(
             supporting_line=detail,
         )
 
+    outreach_review = next(
+        (
+            item
+            for item in outreach_waiting
+            if not getattr(item, "message_reviewed_at", None)
+        ),
+        None,
+    )
+    outreach_approval = next(
+        (
+            item
+            for item in outreach_waiting
+            if getattr(item, "message_reviewed_at", None)
+            and not getattr(item, "message_approved_at", None)
+        ),
+        None,
+    )
+    outreach_send = next(
+        (
+            item
+            for item in outreach_waiting
+            if getattr(item, "message_approved_at", None)
+        ),
+        None,
+    )
     outreach_working = next(
         (
             item
@@ -621,6 +665,45 @@ def _top_priority(
         ),
         None,
     )
+    if outreach_review is not None:
+        return hero(
+            "Outreach Worker",
+            "outreach",
+            "Waiting for you",
+            "Review the prepared sponsor outreach",
+            "The generated message is ready for Message Quality Review.",
+            DashboardAction(
+                "Review outreach",
+                "opportunity_detail",
+                route_params={"opportunity_id": outreach_review.id},
+            ),
+        )
+    if outreach_approval is not None:
+        return hero(
+            "Outreach Worker",
+            "outreach",
+            "Waiting for you",
+            "Approve the reviewed sponsor outreach",
+            "The reviewed message needs your explicit approval before sending.",
+            DashboardAction(
+                "Approve outreach",
+                "opportunity_detail",
+                route_params={"opportunity_id": outreach_approval.id},
+            ),
+        )
+    if outreach_send is not None:
+        return hero(
+            "Outreach Worker",
+            "outreach",
+            "Ready",
+            "Send the approved sponsor outreach",
+            "The reviewed message is approved and ready for delivery.",
+            DashboardAction(
+                "Send outreach",
+                "opportunity_detail",
+                route_params={"opportunity_id": outreach_send.id},
+            ),
+        )
     if outreach_working is not None:
         return hero(
             "Outreach Worker",
@@ -733,6 +816,31 @@ def build_dashboard(
         opportunity
         for opportunity in opportunity_list
         if getattr(opportunity, "stage", None) == "Ready to Send"
+        and bool(
+            getattr(opportunity, "outreach", None)
+            or getattr(opportunity, "reviewed_message", None)
+        )
+    ]
+    outreach_review_needed = [
+        opportunity
+        for opportunity in outreach_waiting
+        if not getattr(opportunity, "message_reviewed_at", None)
+    ]
+    outreach_approval_needed = [
+        opportunity
+        for opportunity in outreach_waiting
+        if getattr(opportunity, "message_reviewed_at", None)
+        and not getattr(opportunity, "message_approved_at", None)
+    ]
+    outreach_send_ready = [
+        opportunity
+        for opportunity in outreach_waiting
+        if getattr(opportunity, "message_approved_at", None)
+    ]
+    outreach_available = [
+        opportunity
+        for opportunity in opportunity_list
+        if _outreach_is_available(opportunity)
     ]
     sponsors_secured = sum(
         getattr(opportunity, "stage", None) == "Won"
@@ -964,21 +1072,72 @@ def build_dashboard(
             "Waiting on",
             "Strategy and sponsor research",
         )
-    elif outreach_waiting:
+    elif outreach_review_needed:
         outreach_worker = DashboardWorker(
             "Outreach Worker",
             "Waiting for you",
             (
-                f"I've prepared {len(outreach_waiting)} outreach item(s) for "
+                f"I've prepared {len(outreach_review_needed)} outreach item(s) for "
                 "your review."
             ),
             DashboardAction(
                 "Review outreach",
                 "opportunity_detail",
-                route_params={"opportunity_id": outreach_waiting[0].id},
+                route_params={"opportunity_id": outreach_review_needed[0].id},
+            ),
+            "Waiting on",
+            "Your message review",
+        )
+    elif outreach_approval_needed:
+        outreach_worker = DashboardWorker(
+            "Outreach Worker",
+            "Waiting for you",
+            (
+                f"{len(outreach_approval_needed)} reviewed outreach item(s) "
+                "await your approval."
+            ),
+            DashboardAction(
+                "Approve outreach",
+                "opportunity_detail",
+                route_params={"opportunity_id": outreach_approval_needed[0].id},
             ),
             "Waiting on",
             "Your approval",
+        )
+    elif outreach_send_ready:
+        outreach_worker = DashboardWorker(
+            "Outreach Worker",
+            "Ready",
+            (
+                f"{len(outreach_send_ready)} approved outreach item(s) "
+                "are ready to send."
+            ),
+            DashboardAction(
+                "Send outreach",
+                "opportunity_detail",
+                route_params={"opportunity_id": outreach_send_ready[0].id},
+            ),
+            "Current task",
+            "Send approved sponsor communication",
+        )
+    elif outreach_available:
+        count = len(outreach_available)
+        outreach_worker = DashboardWorker(
+            "Outreach Worker",
+            "Ready",
+            (
+                f"{count} approved sponsor "
+                f"opportunit{'y is' if count == 1 else 'ies are'} "
+                "ready for outreach drafting."
+            ),
+            DashboardAction(
+                "Generate Outreach",
+                "generate_opportunity_outreach",
+                "POST",
+                route_params={"opportunity_id": outreach_available[0].id},
+            ),
+            "Current task",
+            "Prepare sponsor communication",
         )
     elif active_outreach:
         outreach_worker = DashboardWorker(

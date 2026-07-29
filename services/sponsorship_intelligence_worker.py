@@ -14,6 +14,9 @@ from sqlalchemy import func, select
 from app import SponsorshipIntelligenceJob
 from application import app
 from extensions import db
+from services.contact_research_worker import (
+    process_next_contact_research_job,
+)
 from services.generate_sponsorship_intelligence import (
     generate_workspace_intelligence,
 )
@@ -247,6 +250,25 @@ def process_next_job(
         return True
 
 
+def process_next_background_job(
+    *,
+    worker_id: str,
+    workflow_budget_seconds: float,
+    lease_seconds: float,
+    max_attempts: int,
+) -> bool:
+    """Process one intelligence job or one Contact Discovery job."""
+
+    if process_next_job(
+        worker_id=worker_id,
+        workflow_budget_seconds=workflow_budget_seconds,
+        lease_seconds=lease_seconds,
+        max_attempts=max_attempts,
+    ):
+        return True
+    return process_next_contact_research_job()
+
+
 def run_worker(
     *,
     worker_id: str | None = None,
@@ -254,7 +276,7 @@ def run_worker(
     lease_seconds: float | None = None,
     poll_interval_seconds: float | None = None,
     max_attempts: int | None = None,
-    process: Callable[..., bool] = process_next_job,
+    process: Callable[..., bool] = process_next_background_job,
     sleeper: Callable[[float], None] = sleep,
     clock: Callable[[], float] = monotonic,
     log_stream: TextIO | None = None,

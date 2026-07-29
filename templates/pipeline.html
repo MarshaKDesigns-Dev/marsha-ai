@@ -72,6 +72,39 @@
           </td>
 
           <td>
+            {% if opp.stage == 'Research Approved' and
+            (opp.email or opp.phone or opp.contact_url) and
+            not opp.outreach and not opp.reviewed_message %}
+            <form
+              method="post"
+              action="{{ url_for('generate_opportunity_outreach', opportunity_id=opp.id) }}"
+            >
+              <button class="btn btn-primary btn-sm">Generate Outreach</button>
+            </form>
+            {% elif opp.stage == 'Ready to Send' and opp.outreach and
+            not opp.message_reviewed_at %}
+            <a
+              class="btn btn-dark btn-sm"
+              href="{{ url_for('opportunity_detail', opportunity_id=opp.id) }}"
+            >
+              Review Message
+            </a>
+            {% elif opp.stage == 'Ready to Send' and opp.message_reviewed_at and
+            not opp.message_approved_at %}
+            <a
+              class="btn btn-dark btn-sm"
+              href="{{ url_for('opportunity_detail', opportunity_id=opp.id) }}"
+            >
+              Approve Message
+            </a>
+            {% elif opp.stage == 'Ready to Send' and opp.message_approved_at %}
+            <a
+              class="btn btn-dark btn-sm"
+              href="{{ url_for('opportunity_detail', opportunity_id=opp.id) }}"
+            >
+              Send Outreach
+            </a>
+            {% else %}
             <a
               class="btn btn-dark btn-sm"
               href="{{ url_for('opportunity_detail', opportunity_id=opp.id) }}"
@@ -79,6 +112,7 @@
               {% if follow_up_due %} Open Follow-Up {% else %} Open Opportunity
               {% endif %}
             </a>
+            {% endif %}
           </td>
         </tr>
         {% endfor %}

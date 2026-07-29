@@ -28,11 +28,32 @@ def eligibility():
 
 def test_asset_research_prompt_contains_only_selected_asset():
     response = SimpleNamespace(
-        output_parsed=SponsorResearchResult(prospects=[]),
-        output=[],
+        id="resp_asset_test",
+        status="completed",
+        incomplete_details=None,
+        usage=None,
+        output=[
+            {
+                "type": "message",
+                "status": "completed",
+                "content": [
+                    {
+                        "type": "output_text",
+                        "text": SponsorResearchResult(
+                            prospects=[]
+                        ).model_dump_json(),
+                    }
+                ],
+            }
+        ],
     )
     client = MagicMock()
-    client.with_options.return_value.responses.parse.return_value = response
+    raw_response = MagicMock()
+    raw_response.parse.return_value = response
+    raw_response.status_code = 200
+    client.with_options.return_value.responses.with_raw_response.create.return_value = (
+        raw_response
+    )
     selected = SimpleNamespace(
         id=7,
         name="Official Venue Partner",
@@ -63,7 +84,7 @@ def test_asset_research_prompt_contains_only_selected_asset():
         )
 
     prompt = (
-        client.with_options.return_value.responses.parse.call_args.kwargs[
+        client.with_options.return_value.responses.with_raw_response.create.call_args.kwargs[
             "input"
         ]
     )
@@ -332,6 +353,13 @@ def test_duplicate_result_selection_creates_one_asset_scoped_opportunity(
         id=55,
         company_name="Venue Co",
         ranking_score=82,
+        contact_name="Jordan Lee",
+        contact_title="Partnerships Director",
+        contact_department="Community Partnerships",
+        contact_email="jordan@example.com",
+        contact_phone="919-555-0100",
+        contact_url="https://example.com/contact",
+        contact_evidence_url="https://example.com/contact",
         confidence="high",
         research_date=SimpleNamespace(isoformat=lambda: "2026-07-27"),
         evidence_json="[]",
@@ -382,6 +410,15 @@ def test_duplicate_result_selection_creates_one_asset_scoped_opportunity(
         recommended_target="Venue Co",
         category="Venue Partner",
         score=82,
+        contact_name="Jordan Lee",
+        title="Partnerships Director",
+        department="Community Partnerships",
+        email="jordan@example.com",
+        phone="919-555-0100",
+        contact_url="https://example.com/contact",
+        why_this_contact=(
+            "Public business contact information found during sponsor research."
+        ),
         confidence="high",
         verified_date="2026-07-27",
         sources_json="[]",

@@ -71,6 +71,10 @@ def opportunity(
     outreach=None,
     reviewed_message=None,
     message_reviewed_at=None,
+    message_approved_at=None,
+    email=None,
+    phone=None,
+    contact_url=None,
 ):
     return SimpleNamespace(
         id=identifier,
@@ -84,6 +88,10 @@ def opportunity(
         outreach=outreach,
         reviewed_message=reviewed_message,
         message_reviewed_at=message_reviewed_at,
+        message_approved_at=message_approved_at,
+        email=email,
+        phone=phone,
+        contact_url=contact_url,
     )
 
 
@@ -261,12 +269,46 @@ def test_active_outreach_precedes_pipeline_follow_up():
     dashboard = build(opportunities=[waiting, overdue])
 
     assert dashboard.top_priority.title == (
-        "Your Outreach Worker is preparing sponsor communication"
+        "Review the prepared sponsor outreach"
     )
     assert dashboard.top_priority.action.route_params == {
         "opportunity_id": 2
     }
-    assert dashboard.workers[2].status == "Working"
+    assert dashboard.workers[2].status == "Waiting for you"
+
+
+def test_outreach_worker_requires_review_then_approval_then_send():
+    draft = opportunity(
+        identifier=1,
+        stage="Ready to Send",
+        outreach="Draft sponsor message",
+    )
+    reviewed = opportunity(
+        identifier=2,
+        stage="Ready to Send",
+        outreach="Reviewed sponsor message",
+        reviewed_message="Reviewed sponsor message",
+        message_reviewed_at=NOW,
+    )
+    approved = opportunity(
+        identifier=3,
+        stage="Ready to Send",
+        outreach="Approved sponsor message",
+        reviewed_message="Approved sponsor message",
+        message_reviewed_at=NOW,
+        message_approved_at=NOW,
+    )
+
+    review_dashboard = build(opportunities=[draft])
+    approve_dashboard = build(opportunities=[reviewed])
+    send_dashboard = build(opportunities=[approved])
+
+    assert review_dashboard.workers[2].status == "Waiting for you"
+    assert review_dashboard.workers[2].action.label == "Review outreach"
+    assert approve_dashboard.workers[2].status == "Waiting for you"
+    assert approve_dashboard.workers[2].action.label == "Approve outreach"
+    assert send_dashboard.workers[2].status == "Ready"
+    assert send_dashboard.workers[2].action.label == "Send outreach"
 
 
 def test_strategy_ready_precedes_stale_outreach_without_intelligence():
@@ -572,6 +614,42 @@ def test_saving_one_research_result_keeps_research_worker_ready():
     assert dashboard.top_priority.action.endpoint == "research_worker"
 
 
+def test_approved_contact_makes_outreach_ready_without_changing_research_hero():
+    dashboard = build(
+        research_assignments=[assignment("completed")],
+        opportunities=[
+            opportunity(
+                stage="Research Approved",
+                email="partnerships@example.org",
+            )
+        ],
+    )
+
+    assert dashboard.top_priority.worker_name == "Research Worker"
+    outreach_worker = next(
+        worker
+        for worker in dashboard.workers
+        if worker.name == "Outreach Worker"
+    )
+    assert outreach_worker.status == "Ready"
+    assert outreach_worker.action.label == "Generate Outreach"
+    assert outreach_worker.action.endpoint == "generate_opportunity_outreach"
+    assert outreach_worker.action.method == "POST"
+
+
+def test_research_approved_without_contact_keeps_outreach_waiting():
+    dashboard = build(
+        opportunities=[opportunity(stage="Research Approved")],
+    )
+
+    outreach_worker = next(
+        worker
+        for worker in dashboard.workers
+        if worker.name == "Outreach Worker"
+    )
+    assert outreach_worker.status == "Waiting"
+
+
 def test_saving_results_from_several_assignments_keeps_research_ready():
     dashboard = build(
         research_assignments=[
@@ -609,7 +687,7 @@ def test_beginning_outreach_uses_outreach_ready_hero():
     assert dashboard.top_priority.action.label == "Begin Outreach"
 
 
-def test_generated_outreach_uses_outreach_working_hero():
+def test_generated_outreach_uses_review_outreach_hero():
     dashboard = build(
         opportunities=[
             opportunity(
@@ -620,8 +698,8 @@ def test_generated_outreach_uses_outreach_working_hero():
     )
 
     assert dashboard.top_priority.worker_name == "Outreach Worker"
-    assert dashboard.top_priority.status == "Working"
-    assert dashboard.top_priority.action.label == "View Outreach Work"
+    assert dashboard.top_priority.status == "Waiting for you"
+    assert dashboard.top_priority.action.label == "Review outreach"
 
 
 def test_sent_opportunity_uses_pipeline_worker_hero():

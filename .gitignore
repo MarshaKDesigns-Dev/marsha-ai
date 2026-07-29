@@ -1,6 +1,7 @@
 venv/
 .env
 instance/
+logs/
 __pycache__/
 *.pyc
 .DS_Store

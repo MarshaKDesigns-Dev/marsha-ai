@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+import logging
 import os
 from datetime import date
 from enum import Enum
 from typing import Any
 from urllib.parse import urlsplit, urlunsplit
 
+from flask import current_app, has_app_context
 from openai import (
     APIConnectionError,
     APIError,
@@ -15,10 +17,12 @@ from openai import (
     AuthenticationError,
     OpenAI,
 )
+from openai.lib._parsing._responses import type_to_text_format_param
 from pydantic import (
     BaseModel,
     ConfigDict,
     Field,
+    ValidationError,
     field_validator,
     model_validator,
 )
@@ -38,6 +42,22 @@ DEFAULT_MODEL = os.getenv(
 )
 SPONSOR_RESEARCH_TIMEOUT_SECONDS = 90.0
 SPONSOR_RESEARCH_MAX_PROSPECTS = 10
+SPONSOR_RESEARCH_DEFAULT_MAX_OUTPUT_TOKENS = 8000
+
+
+def sponsor_research_max_output_tokens() -> int:
+    """Return a safe configured output-token allowance."""
+
+    raw_value = os.getenv("OPENAI_SPONSOR_RESEARCH_MAX_OUTPUT_TOKENS")
+    try:
+        value = int(raw_value) if raw_value is not None else 0
+    except (TypeError, ValueError):
+        value = 0
+    return (
+        value
+        if value > 0
+        else SPONSOR_RESEARCH_DEFAULT_MAX_OUTPUT_TOKENS
+    )
 
 
 class SponsorResearchError(RuntimeError):
@@ -68,6 +88,82 @@ class NoCredibleProspectsError(SponsorResearchError):
     ) -> None:
         super().__init__(message)
         self.reason_code = reason_code
+
+
+def _value(item: Any, name: str, default: Any = None) -> Any:
+    if isinstance(item, dict):
+        return item.get(name, default)
+    return getattr(item, name, default)
+
+
+def _response_diagnostics(
+    response: Any,
+    *,
+    http_status: int | None = None,
+) -> dict[str, Any]:
+    """Return non-content metadata from a provider Response."""
+
+    output = _value(response, "output", [])
+    output = output if isinstance(output, list) else []
+    output_types = [
+        _value(item, "type")
+        for item in output
+        if isinstance(_value(item, "type"), str)
+    ]
+    output_text_character_count = 0
+    refusal_present = False
+    output_statuses = []
+    for item in output:
+        status = _value(item, "status")
+        if isinstance(status, str):
+            output_statuses.append(status)
+        content = _value(item, "content", [])
+        if not isinstance(content, list):
+            continue
+        for content_item in content:
+            content_type = _value(content_item, "type")
+            if content_type == "refusal":
+                refusal_present = True
+            text = _value(content_item, "text")
+            if (
+                content_type == "output_text"
+                and isinstance(text, str)
+            ):
+                output_text_character_count += len(text)
+
+    usage = _value(response, "usage")
+    incomplete_details = _value(response, "incomplete_details")
+    return {
+        "response_id": _value(response, "id"),
+        "response_status": _value(response, "status"),
+        "http_status": http_status,
+        "incomplete_reason": _value(incomplete_details, "reason"),
+        "input_tokens": _value(usage, "input_tokens"),
+        "output_tokens": _value(usage, "output_tokens"),
+        "total_tokens": _value(usage, "total_tokens"),
+        "output_item_types": output_types,
+        "output_statuses": output_statuses,
+        "output_text_character_count": output_text_character_count,
+        "web_search_call_present": "web_search_call" in output_types,
+        "refusal_present": refusal_present,
+        "finish_reason": _value(response, "finish_reason"),
+        "termination_reason": _value(response, "termination_reason"),
+    }
+
+
+def _response_output_text(response: Any) -> str:
+    texts = []
+    for item in _value(response, "output", []):
+        if _value(item, "type") != "message":
+            continue
+        for content_item in _value(item, "content", []):
+            text = _value(content_item, "text")
+            if (
+                _value(content_item, "type") == "output_text"
+                and isinstance(text, str)
+            ):
+                texts.append(text)
+    return "".join(texts)
 
 
 class EvidenceType(str, Enum):
@@ -553,16 +649,70 @@ industry alignment, and ask credibility independently; recommendation strength
 is calculated by the application, not by the model.
 """
 
+    logger = (
+        current_app.logger
+        if has_app_context()
+        else logging.getLogger(__name__)
+    )
+    diagnostics = _response_diagnostics(None)
+
+    def log_invalid_result(
+        exception_type: str,
+        validation_errors: list[dict[str, Any]] | None = None,
+    ) -> None:
+        logger.error(
+            (
+                "sponsor_research_original_exception "
+                "exception_type=%s validation_errors=%s "
+                "assignment_id=%s asset_id=%s asset_name=%s "
+                "response_id=%s response_status=%s http_status=%s "
+                "incomplete_reason=%s input_tokens=%s output_tokens=%s "
+                "total_tokens=%s output_item_types=%s output_statuses=%s "
+                "output_text_character_count=%s "
+                "web_search_call_present=%s refusal_present=%s "
+                "finish_reason=%s termination_reason=%s"
+            ),
+            exception_type,
+            validation_errors or [],
+            None,
+            getattr(selected_asset, "id", None),
+            getattr(selected_asset, "name", None),
+            diagnostics["response_id"],
+            diagnostics["response_status"],
+            diagnostics["http_status"],
+            diagnostics["incomplete_reason"],
+            diagnostics["input_tokens"],
+            diagnostics["output_tokens"],
+            diagnostics["total_tokens"],
+            diagnostics["output_item_types"],
+            diagnostics["output_statuses"],
+            diagnostics["output_text_character_count"],
+            diagnostics["web_search_call_present"],
+            diagnostics["refusal_present"],
+            diagnostics["finish_reason"],
+            diagnostics["termination_reason"],
+        )
+
     try:
-        response = openai_client.with_options(
+        raw_response = openai_client.with_options(
             timeout=SPONSOR_RESEARCH_TIMEOUT_SECONDS,
             max_retries=0,
-        ).responses.parse(
+        ).responses.with_raw_response.create(
             model=model or DEFAULT_MODEL,
+            max_output_tokens=sponsor_research_max_output_tokens(),
             tools=[{"type": "web_search"}],
             include=["web_search_call.action.sources"],
             input=prompt,
-            text_format=SponsorResearchResult,
+            text={
+                "format": type_to_text_format_param(
+                    SponsorResearchResult
+                )
+            },
+        )
+        response = raw_response.parse()
+        diagnostics = _response_diagnostics(
+            response,
+            http_status=raw_response.status_code,
         )
     except APITimeoutError as exc:
         raise SponsorResearchUnavailableError(
@@ -588,15 +738,48 @@ is calculated by the application, not by the model.
             reason_code="openai_api_error",
         ) from exc
     except Exception as exc:
+        log_invalid_result(type(exc).__name__)
         raise SponsorResearchError(
             "Sponsor research returned an invalid result."
         ) from exc
 
-    parsed = response.output_parsed
-    if not isinstance(parsed, SponsorResearchResult):
+    if diagnostics["response_status"] != "completed":
+        log_invalid_result("IncompleteProviderResponse")
         raise SponsorResearchError(
             "Sponsor research returned an invalid result."
         )
+    if diagnostics["refusal_present"]:
+        log_invalid_result("ProviderRefusal")
+        raise SponsorResearchError(
+            "Sponsor research returned an invalid result."
+        )
+
+    output_text = _response_output_text(response)
+    if not output_text:
+        log_invalid_result("MissingOutputText")
+        raise SponsorResearchError(
+            "Sponsor research returned an invalid result."
+        )
+
+    try:
+        parsed = SponsorResearchResult.model_validate_json(output_text)
+    except ValidationError as exc:
+        validation_errors = [
+            {
+                "type": item.get("type"),
+                "location": item.get("loc"),
+                "message": item.get("msg"),
+            }
+            for item in exc.errors(
+                include_url=False,
+                include_context=False,
+                include_input=False,
+            )
+        ]
+        log_invalid_result(type(exc).__name__, validation_errors)
+        raise SponsorResearchError(
+            "Sponsor research returned an invalid result."
+        ) from exc
 
     parsed_prospect_count = len(parsed.prospects)
     cited_urls = collect_web_search_source_urls(response)

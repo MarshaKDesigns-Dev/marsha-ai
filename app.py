@@ -866,6 +866,7 @@ class Opportunity(db.Model):
     reviewed_message = db.Column(db.Text)
     message_review_notes = db.Column(db.Text)
     message_reviewed_at = db.Column(db.DateTime)
+    message_approved_at = db.Column(db.DateTime)
 
     follow_up_subject = db.Column(db.String(300))
     follow_up_message = db.Column(db.Text)
@@ -879,6 +880,11 @@ class Opportunity(db.Model):
         default=datetime.utcnow,
         onupdate=datetime.utcnow
     )
+    contact_research_jobs = db.relationship(
+        "ContactResearchJob",
+        back_populates="opportunity",
+        order_by="ContactResearchJob.created_at",
+    )
 
     @property
     def sources(self):
@@ -886,6 +892,43 @@ class Opportunity(db.Model):
             return json.loads(self.sources_json or "[]")
         except Exception:
             return []
+
+
+class ContactResearchJob(db.Model):
+    """Durable Contact Discovery lifecycle for one Opportunity."""
+
+    id = db.Column(db.Integer, primary_key=True)
+    opportunity_id = db.Column(
+        db.Integer,
+        db.ForeignKey("opportunity.id"),
+        nullable=False,
+    )
+    status = db.Column(db.String(20), nullable=False, default="queued")
+    error_message = db.Column(db.Text)
+    result_json = db.Column(db.Text)
+    provider_response_id = db.Column(db.String(255))
+    input_tokens = db.Column(db.Integer)
+    output_tokens = db.Column(db.Integer)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    started_at = db.Column(db.DateTime)
+    completed_at = db.Column(db.DateTime)
+
+    opportunity = db.relationship(
+        "Opportunity",
+        back_populates="contact_research_jobs",
+    )
+
+    __table_args__ = (
+        db.CheckConstraint(
+            "status IN ('queued', 'processing', 'completed', 'failed')",
+            name="ck_contact_research_job_status",
+        ),
+        db.Index(
+            "ix_contact_research_job_opportunity_created",
+            "opportunity_id",
+            "created_at",
+        ),
+    )
 
 
 def get_active_organization():
@@ -1573,6 +1616,29 @@ def determine_outreach_channel(contact):
         return "contact_form"
 
     return "unknown"
+
+
+def opportunity_has_usable_contact(opportunity):
+    """Return whether an Opportunity has an existing delivery route."""
+
+    return any(
+        (
+            getattr(opportunity, "email", None),
+            getattr(opportunity, "phone", None),
+            getattr(opportunity, "contact_url", None),
+        )
+    )
+
+
+def opportunity_can_generate_outreach(opportunity):
+    """Return whether existing Outreach Worker generation may begin."""
+
+    return bool(
+        getattr(opportunity, "stage", None) == "Research Approved"
+        and opportunity_has_usable_contact(opportunity)
+        and not getattr(opportunity, "outreach", None)
+        and not getattr(opportunity, "reviewed_message", None)
+    )
 
 
 def review_message_quality(opp, subject, message):
@@ -2589,6 +2655,18 @@ def review_research_assignment(assignment_id):
                     recommended_target=prospect_record.company_name,
                     category=asset.name,
                     score=prospect_record.ranking_score,
+                    contact_name=prospect_record.contact_name,
+                    title=prospect_record.contact_title,
+                    department=prospect_record.contact_department,
+                    email=prospect_record.contact_email,
+                    phone=prospect_record.contact_phone,
+                    contact_url=prospect_record.contact_url,
+                    why_this_contact=(
+                        "Public business contact information found during "
+                        "sponsor research."
+                        if prospect_record.contact_evidence_url
+                        else "No reliable public contact was found."
+                    ),
                     confidence=prospect_record.confidence,
                     verified_date=prospect_record.research_date.isoformat(),
                     sources_json=prospect_record.evidence_json,
@@ -2723,8 +2801,8 @@ def prospects(category):
                 monotonic() - research_started_at,
             )
             flash(str(exc), "warning")
-        except SponsorResearchError:
-            app.logger.warning(
+        except SponsorResearchError as exc:
+            app.logger.exception(
                 (
                     "sponsor_research_invalid_result organization_id=%s "
                     "initiative_id=%s category_slug=%s "
@@ -3080,6 +3158,12 @@ def show_pipeline():
 @app.route("/opportunity/<int:opportunity_id>")
 def opportunity_detail(opportunity_id):
     opp = Opportunity.query.get_or_404(opportunity_id)
+    contact_research_job = ContactResearchJob.query.filter_by(
+        opportunity_id=opp.id,
+    ).order_by(
+        ContactResearchJob.created_at.desc(),
+        ContactResearchJob.id.desc(),
+    ).first()
 
     default_subject = opp.subject or f"Potential partnership with {get_org_profile()['name']}"
     display_message = (opp.reviewed_message or opp.outreach or "").replace(
@@ -3115,9 +3199,134 @@ def opportunity_detail(opportunity_id):
         test_email=TEST_EMAIL,
         default_subject=default_subject,
         display_message=display_message,
+        contact_research_job=contact_research_job,
         review_notes=review_notes,
         follow_up_due=follow_up_due,
         follow_up_review_notes=follow_up_review_notes
+    )
+
+
+@app.route(
+    "/opportunity/<int:opportunity_id>/generate-outreach",
+    methods=["POST"],
+)
+def generate_opportunity_outreach(opportunity_id):
+    """Generate the existing Outreach Worker draft for one approved sponsor."""
+
+    organization = get_active_organization()
+    initiative = get_active_initiative()
+    opportunity = Opportunity.query.filter_by(
+        id=opportunity_id,
+        organization_id=getattr(organization, "id", None),
+        initiative_id=getattr(initiative, "id", None),
+    ).first_or_404()
+
+    if getattr(opportunity, "outreach", None):
+        return redirect(
+            url_for("opportunity_detail", opportunity_id=opportunity.id)
+        )
+    if not opportunity_can_generate_outreach(opportunity):
+        flash(
+            "This opportunity needs approved research and a verified contact "
+            "route before outreach can be generated.",
+            "warning",
+        )
+        return redirect(
+            url_for("opportunity_detail", opportunity_id=opportunity.id)
+        )
+
+    prospect_record = db.session.get(
+        SponsorProspect,
+        getattr(opportunity, "sponsor_prospect_id", None),
+    )
+    prospect = {
+        "name": (
+            getattr(opportunity, "recommended_target", None)
+            or getattr(opportunity, "parent_prospect", "")
+        ),
+        "category": getattr(opportunity, "category", "") or "",
+        "fit": getattr(prospect_record, "why_fits", "") or "",
+        "angle": (
+            getattr(prospect_record, "recommended_ask", None)
+            or getattr(prospect_record, "why_recommended", None)
+            or ""
+        ),
+    }
+    contact = {
+        "recommended_target": opportunity.recommended_target,
+        "contact_name": opportunity.contact_name,
+        "title": opportunity.title,
+        "department": opportunity.department,
+        "email": opportunity.email,
+        "phone": opportunity.phone,
+        "contact_url": opportunity.contact_url,
+        "why_this_contact": opportunity.why_this_contact,
+        "sources": opportunity.sources,
+    }
+    outreach = draft_outreach(prospect, contact)
+    readiness_errors = validate_outreach_readiness(contact, outreach)
+    if outreach.startswith(
+        ("OPENAI_API_KEY is not configured.", "Outreach drafting failed:")
+    ):
+        readiness_errors.append(outreach)
+    if readiness_errors:
+        for error in dict.fromkeys(readiness_errors):
+            flash(error, "warning")
+        return redirect(
+            url_for("opportunity_detail", opportunity_id=opportunity.id)
+        )
+
+    opportunity.outreach = outreach
+    opportunity.outreach_channel = determine_outreach_channel(contact)
+    opportunity.message_approved_at = None
+    if opportunity.outreach_channel == "email" and not opportunity.subject:
+        opportunity.subject = (
+            f"Potential partnership with {get_org_profile()['name']}"
+        )
+    opportunity.stage = "Ready to Send"
+    db.session.commit()
+
+    flash(
+        "Sponsor outreach generated. Review the draft before sending.",
+        "success",
+    )
+    return redirect(
+        url_for("opportunity_detail", opportunity_id=opportunity.id)
+    )
+
+
+@app.route(
+    "/opportunity/<int:opportunity_id>/research-contact",
+    methods=["POST"],
+)
+def enqueue_contact_research(opportunity_id):
+    organization = get_active_organization()
+    initiative = get_active_initiative()
+    opportunity = Opportunity.query.filter_by(
+        id=opportunity_id,
+        organization_id=getattr(organization, "id", None),
+        initiative_id=getattr(initiative, "id", None),
+    ).first_or_404()
+
+    active_job = ContactResearchJob.query.filter_by(
+        opportunity_id=opportunity.id,
+    ).filter(
+        ContactResearchJob.status.in_(("queued", "processing")),
+    ).order_by(
+        ContactResearchJob.created_at.desc(),
+        ContactResearchJob.id.desc(),
+    ).first()
+    if active_job is None:
+        db.session.add(
+            ContactResearchJob(
+                opportunity_id=opportunity.id,
+                status="queued",
+            )
+        )
+        db.session.commit()
+
+    return redirect(
+        url_for("opportunity_detail", opportunity_id=opportunity.id)
     )
 
 
@@ -3152,6 +3361,7 @@ def review_message(opportunity_id):
         "risk_flags": result.get("risk_flags") or []
     })
     opp.message_reviewed_at = datetime.utcnow()
+    opp.message_approved_at = None
 
     db.session.commit()
 
@@ -3177,6 +3387,7 @@ def reset_message_review(opportunity_id):
     opp.reviewed_message = None
     opp.message_review_notes = None
     opp.message_reviewed_at = None
+    opp.message_approved_at = None
 
     if (opp.outreach_channel or "email") == "email":
         opp.subject = None
@@ -3192,12 +3403,54 @@ def reset_message_review(opportunity_id):
     )
 
 
+@app.route(
+    "/opportunity/<int:opportunity_id>/approve-message",
+    methods=["POST"],
+)
+def approve_message(opportunity_id):
+    opp = Opportunity.query.get_or_404(opportunity_id)
+
+    if not (
+        opp.outreach
+        and opp.reviewed_message
+        and opp.message_reviewed_at
+    ):
+        flash(
+            "Run Message Quality Review before approving outreach.",
+            "warning",
+        )
+        return redirect(
+            url_for("opportunity_detail", opportunity_id=opp.id)
+        )
+
+    if opp.message_approved_at:
+        flash("Outreach message is already approved.", "info")
+        return redirect(
+            url_for("opportunity_detail", opportunity_id=opp.id)
+        )
+
+    opp.message_approved_at = datetime.utcnow()
+    db.session.commit()
+
+    flash(
+        "Outreach message approved. It is ready to send.",
+        "success",
+    )
+    return redirect(
+        url_for("opportunity_detail", opportunity_id=opp.id)
+    )
+
+
 @app.route("/opportunity/<int:opportunity_id>/send-email", methods=["POST"])
 def send_email(opportunity_id):
     opp = Opportunity.query.get_or_404(opportunity_id)
 
-    if not opp.message_reviewed_at:
-        flash("Review the message before sending email.", "warning")
+    if not (
+        opp.reviewed_message
+        and opp.message_reviewed_at
+        and opp.message_approved_at
+    ):
+        flash("Approve the reviewed message before sending.", "warning")
         return redirect(url_for("opportunity_detail", opportunity_id=opp.id))
 
     subject = (opp.subject or "").strip()
@@ -3255,14 +3508,12 @@ def send_email(opportunity_id):
 def mark_sent(opportunity_id):
     opp = Opportunity.query.get_or_404(opportunity_id)
 
-    if not opp.message_reviewed_at:
-        if opp.outreach_channel == "phone":
-            flash("Review the call script before marking the call complete.", "warning")
-        elif opp.outreach_channel == "contact_form":
-            flash("Review the contact-form message before marking it submitted.", "warning")
-        else:
-            flash("Review the message before marking outreach as sent.", "warning")
-
+    if not (
+        opp.reviewed_message
+        and opp.message_reviewed_at
+        and opp.message_approved_at
+    ):
+        flash("Approve the reviewed message before sending.", "warning")
         return redirect(url_for("opportunity_detail", opportunity_id=opp.id))
 
     opp.stage = "Sent"

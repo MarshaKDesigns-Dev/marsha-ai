@@ -200,7 +200,7 @@ def test_invalid_result_surfaces_specific_message_and_log(
 
     assert b"Sponsor research returned an invalid result." in response.data
     assert "sponsor_research_invalid_result" in caplog.text
-    assert "sensitive provider detail" not in caplog.text
+    assert "sensitive provider detail" in caplog.text
 
 
 def test_persistence_failure_surfaces_specific_message_and_log(

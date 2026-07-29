@@ -12,10 +12,17 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from app import ResearchAssignment, app, db  # noqa: E402
+from app import ContactResearchJob, ResearchAssignment, app, db  # noqa: E402
 from migrate_asset_research_assignments import (  # noqa: E402
     COLUMNS as ASSET_RESEARCH_COLUMNS,
     run_migration as run_asset_research_migration,
+)
+from migrate_contact_research_jobs import (  # noqa: E402
+    run_migration as run_contact_research_job_migration,
+)
+from migrate_message_approval import (  # noqa: E402
+    COLUMNS as MESSAGE_APPROVAL_COLUMNS,
+    run_migration as run_message_approval_migration,
 )
 from migrate_phase1_context import (  # noqa: E402
     COLUMNS as PHASE1_COLUMNS,
@@ -67,6 +74,21 @@ MIGRATIONS = (
                 for column in ResearchAssignment.__table__.columns
             },
         },
+    ),
+    (
+        "contact_research_jobs",
+        run_contact_research_job_migration,
+        {
+            ContactResearchJob.__tablename__: {
+                column.name
+                for column in ContactResearchJob.__table__.columns
+            },
+        },
+    ),
+    (
+        "message_approval",
+        run_message_approval_migration,
+        {"opportunity": set(MESSAGE_APPROVAL_COLUMNS)},
     ),
 )
 

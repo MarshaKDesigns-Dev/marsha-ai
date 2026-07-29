@@ -19,6 +19,8 @@ def test_migration_runner_has_one_explicit_order():
         "strategy_meeting_assets",
         "phase1_context",
         "asset_research_assignments",
+        "contact_research_jobs",
+        "message_approval",
     ]
 
 

@@ -18,6 +18,7 @@ from reset_application_data import (
 def test_reset_scope_contains_only_application_model_tables():
     assert set(application_table_names()) == {
         "organization",
+        "contact_research_job",
         "opportunity",
         "research_assignment",
         "research_priority",

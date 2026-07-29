@@ -12,6 +12,11 @@ if (-not (Test-Path -LiteralPath $python)) {
 Write-Host "Repository: $root"
 Write-Host "Python: $python"
 
+$logs = Join-Path $root "logs"
+$stdoutLog = Join-Path $logs "flask-stdout.log"
+$stderrLog = Join-Path $logs "flask-stderr.log"
+New-Item -ItemType Directory -Path $logs -Force | Out-Null
+
 $existing = Get-MarshaPortListener -Port 5000
 if ($existing) {
     Write-Host "Port 5000 is already in use."
@@ -48,13 +53,26 @@ $arguments = @(
     "--host", "127.0.0.1",
     "--port", "5000"
 )
+$launcherScript = Join-Path $logs "start-flask.cmd"
+$flaskCommand = (
+    "`"$python`" " +
+    ($arguments -join " ") +
+    " 1>>`"$stdoutLog`" 2>>`"$stderrLog`""
+)
+@(
+    "@echo off"
+    "cd /d `"$root`""
+    $flaskCommand
+) | Set-Content -LiteralPath $launcherScript -Encoding ASCII
+$startInfo = [System.Diagnostics.ProcessStartInfo]::new()
+$startInfo.FileName = $env:ComSpec
+$startInfo.Arguments = "/d /c call `"$launcherScript`""
+$startInfo.WorkingDirectory = $root
+$startInfo.UseShellExecute = $false
+$startInfo.CreateNoWindow = $true
+$startInfo.WindowStyle = [System.Diagnostics.ProcessWindowStyle]::Hidden
 $startedAt = Get-Date
-$started = Start-Process `
-    -FilePath $python `
-    -ArgumentList $arguments `
-    -WorkingDirectory $root `
-    -WindowStyle Hidden `
-    -PassThru
+$started = [System.Diagnostics.Process]::Start($startInfo)
 
 $deadline = (Get-Date).AddSeconds(15)
 do {
@@ -78,3 +96,5 @@ if ($listener.StartTime -lt $startedAt.AddSeconds(-2)) {
 Write-Host "Marsha AI local server started successfully."
 Write-MarshaListener -Listener $listener
 Write-Host "Local URL: http://127.0.0.1:5000"
+Write-Host "Flask standard output log: $stdoutLog"
+Write-Host "Flask standard error log: $stderrLog"
