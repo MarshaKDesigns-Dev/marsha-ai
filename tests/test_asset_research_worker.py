@@ -98,7 +98,12 @@ def test_asset_research_prompt_contains_only_selected_asset():
 
 def test_research_landing_queries_only_approved_scoped_assets(monkeypatch):
     organization = SimpleNamespace(id=11)
-    initiative = SimpleNamespace(id=22, organization_id=11)
+    initiative = SimpleNamespace(
+        id=22,
+        organization_id=11,
+        sponsorship_needs_json='["Photography", "Venue", "Other"]',
+        sponsorship_needs_other="Transportation for speakers",
+    )
     asset = SimpleNamespace(
         id=33,
         name="Custom Photography Partner",
@@ -152,6 +157,12 @@ def test_research_landing_queries_only_approved_scoped_assets(monkeypatch):
 
     assert response.status_code == 200
     assert b"Custom Photography Partner" in response.data
+    assert b"Setup needs included:</strong>\n        Photography" in response.data
+    assert b"Needs without an approved Sponsor Opportunity:" in response.data
+    assert b"Venue" in response.data
+    assert b"Additional setup needs to verify:" in response.data
+    assert b"Transportation for speakers" in response.data
+    assert b"Add and approve a custom asset" in response.data
     asset_query.filter_by.assert_called_once_with(
         organization_id=11,
         initiative_id=22,
@@ -162,7 +173,12 @@ def test_research_landing_queries_only_approved_scoped_assets(monkeypatch):
 
 def test_research_worker_with_no_approved_assets_renders_empty_state(monkeypatch):
     organization = SimpleNamespace(id=11)
-    initiative = SimpleNamespace(id=22, organization_id=11)
+    initiative = SimpleNamespace(
+        id=22,
+        organization_id=11,
+        sponsorship_needs_json='["Venue"]',
+        sponsorship_needs_other="",
+    )
     asset_query = MagicMock()
     asset_query.filter_by.return_value.order_by.return_value.all.return_value = []
     assignment_query = MagicMock()
@@ -424,6 +440,9 @@ def test_research_templates_require_explicit_review_controls():
     assert "Sponsor Opportunity would you like me to research first?" in landing
     assert "worker_status_copy('research').working_title" in landing
     assert "button.disabled = true" in landing
+    assert "Setup needs included:" in landing
+    assert "Add and approve a custom asset" in landing
+    assert "Previous research assignments ({{ assignment_history|length }})" in landing
     assert "Save Selected to Sponsor Pipeline" in results
     assert "Save All to Sponsor Pipeline" in results
     assert "Leave Results Unchanged" in results

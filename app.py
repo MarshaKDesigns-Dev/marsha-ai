@@ -28,6 +28,7 @@ from services.sponsorship_context import (
     parse_multiline,
     validate_needs,
 )
+from services.research_need_coverage import build_need_coverage
 from services.workflow_labels import (
     BACKGROUND_WORK_HELPER,
     opportunity_stage_label,
@@ -2572,6 +2573,7 @@ def research_worker():
         organization,
         initiative,
     )
+    need_coverage = build_need_coverage(initiative, assets)
     return render_template(
         "research_worker.html",
         assets=assets,
@@ -2579,6 +2581,7 @@ def research_worker():
         saved_counts=saved_counts,
         assignment_history=assignments,
         assignment_asset_names={asset.id: asset.name for asset in assets},
+        need_coverage=need_coverage,
     )
 
 

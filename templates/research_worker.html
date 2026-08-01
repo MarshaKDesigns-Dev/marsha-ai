@@ -8,6 +8,33 @@
   Sponsor Opportunity would you like me to research first?
 </p>
 
+{% if need_coverage.selected_needs or need_coverage.other_need %}
+<section class="card p-4 mt-4" aria-labelledby="coverage-heading">
+  <div class="eyebrow">YOUR RESEARCH COVERAGE</div>
+  <h2 class="h4" id="coverage-heading">Every selected need stays visible</h2>
+  <p class="mb-0">
+    Approved Sponsor Opportunities may cover more than one setup need. Each
+    opportunity below shows the needs included in that research.
+  </p>
+  {% if need_coverage.uncovered_needs %}
+  <div class="alert alert-warning mt-3 mb-0">
+    <strong>Needs without an approved Sponsor Opportunity:</strong>
+    {{ need_coverage.uncovered_needs|join(', ') }}.
+    <a href="{{ url_for('sponsorship_asset_review') }}">Add and approve a custom asset</a>
+    to create a controlled research path for these needs.
+  </div>
+  {% endif %}
+  {% if need_coverage.other_need %}
+  <div class="alert alert-info mt-3 mb-0">
+    <strong>Additional setup needs to verify:</strong>
+    {{ need_coverage.other_need }}
+    <a href="{{ url_for('sponsorship_asset_review') }}">Review or add an approved asset</a>
+    if these details need their own Sponsor Opportunity.
+  </div>
+  {% endif %}
+</section>
+{% endif %}
+
 {% if assets %}
 <div class="row g-3 mt-2">
   {% for asset in assets %}
@@ -34,6 +61,12 @@
       {% if asset.description %}<p>{{ asset.description }}</p>{% endif %}
       {% if asset.sponsor_value or asset.value %}
       <p><strong>Sponsor value:</strong> {{ asset.sponsor_value or asset.value }}</p>
+      {% endif %}
+      {% if need_coverage.asset_needs.get(asset.id) %}
+      <p class="small">
+        <strong>Setup needs included:</strong>
+        {{ need_coverage.asset_needs.get(asset.id)|join(', ') }}
+      </p>
       {% endif %}
       {% if assignment and assignment.status in ['ready', 'working'] %}
       <a class="btn btn-outline-light mt-auto"
@@ -86,8 +119,9 @@
 
 {% if assignment_history %}
 <section class="card p-4 mt-4">
-  <div class="eyebrow">RESEARCH HISTORY</div>
-  <h2 class="h4">Previous research assignments</h2>
+  <details>
+  <summary class="h4 mb-0">Previous research assignments ({{ assignment_history|length }})</summary>
+  <p class="text-muted mt-3">Open any earlier assignment without replacing newer research or saved Sponsor Pipeline records.</p>
   <div class="list-group list-group-flush">
     {% for assignment in assignment_history %}
     <a class="list-group-item list-group-item-action d-flex justify-content-between align-items-center"
@@ -99,6 +133,7 @@
     </a>
     {% endfor %}
   </div>
+  </details>
 </section>
 {% endif %}
 
