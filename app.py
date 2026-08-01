@@ -69,53 +69,58 @@ CATEGORIES = [
 ]
 
 
-def _phase1_form_context(organization=None, initiative=None):
+def _phase1_form_context(organization=None, initiative=None, form=None):
+    def multiline_value(name, owner, attribute):
+        if form is not None:
+            return form.get(name, "")
+        return "\n".join(json_list(getattr(owner, attribute, "[]")))
+
     return {
-        "sponsorship_need_options": SPONSORSHIP_NEEDS,
+        "sponsorship_need_options": tuple(
+            need for need in SPONSORSHIP_NEEDS if need != "Other"
+        ),
         "geographic_scope_options": GEOGRAPHIC_SCOPES,
         "geographic_radius_options": GEOGRAPHIC_RADII,
         "selected_sponsorship_needs": set(
-            json_list(
+            form.getlist("sponsorship_needs")
+            if form is not None
+            else json_list(
                 getattr(initiative, "sponsorship_needs_json", "[]")
             )
         ),
-        "dream_sponsors_value": "\n".join(
-            json_list(getattr(initiative, "dream_sponsors_json", "[]"))
+        "sponsorship_needs_other_value": (
+            form.get("sponsorship_needs_other", "")
+            if form is not None
+            else getattr(initiative, "sponsorship_needs_other", "") or ""
         ),
-        "desired_categories_value": "\n".join(
-            json_list(
-                getattr(
-                    initiative,
-                    "desired_sponsor_categories_json",
-                    "[]",
-                )
-            )
+        "sponsorship_needs_notes_value": (
+            form.get("sponsorship_needs_notes", "")
+            if form is not None
+            else getattr(initiative, "sponsorship_needs_notes", "") or ""
         ),
-        "current_sponsors_value": "\n".join(
-            json_list(getattr(organization, "current_sponsors_json", "[]"))
+        "dream_sponsors_value": multiline_value(
+            "dream_sponsors", initiative, "dream_sponsors_json"
         ),
-        "existing_relationships_value": "\n".join(
-            json_list(
-                getattr(organization, "existing_relationships_json", "[]")
-            )
+        "desired_categories_value": multiline_value(
+            "desired_sponsor_categories",
+            initiative,
+            "desired_sponsor_categories_json",
         ),
-        "already_contacted_value": "\n".join(
-            json_list(
-                getattr(
-                    organization,
-                    "businesses_already_contacted_json",
-                    "[]",
-                )
-            )
+        "current_sponsors_value": multiline_value(
+            "current_sponsors", organization, "current_sponsors_json"
         ),
-        "never_contact_value": "\n".join(
-            json_list(
-                getattr(
-                    organization,
-                    "businesses_never_contact_json",
-                    "[]",
-                )
-            )
+        "existing_relationships_value": multiline_value(
+            "existing_relationships", organization, "existing_relationships_json"
+        ),
+        "already_contacted_value": multiline_value(
+            "businesses_already_contacted",
+            organization,
+            "businesses_already_contacted_json",
+        ),
+        "never_contact_value": multiline_value(
+            "businesses_never_contact",
+            organization,
+            "businesses_never_contact_json",
         ),
     }
 
@@ -1914,16 +1919,34 @@ def setup():
         organization_name = request.form.get("organization_name", "").strip()
         initiative_name = request.form.get("initiative_name", "").strip()
 
-        if not organization_name or not initiative_name:
+        required_values = (
+            (organization_name, "Enter your organization name."),
+            (request.form.get("mission", "").strip(), "Enter your organization mission."),
+            (request.form.get("sender_name", "").strip(), "Enter the sender name."),
+            (request.form.get("sender_title", "").strip(), "Enter the sender title."),
+            (initiative_name, "Enter the sponsorship initiative name."),
+        )
+        errors = [message for value, message in required_values if not value]
+        deadline_value = request.form.get("deadline", "").strip()
+        parsed_deadline = None
+        if deadline_value:
+            try:
+                parsed_deadline = datetime.strptime(
+                    deadline_value, "%Y-%m-%d"
+                ).date()
+            except ValueError:
+                errors.append("Enter the deadline as YYYY-MM-DD.")
+        if errors:
             flash(
-                "Organization name and sponsorship initiative name are required.",
+                "Please correct Setup: " + " ".join(errors),
                 "warning"
             )
             return render_template(
                 "setup.html",
                 organization=organization,
                 initiative=initiative,
-                **_phase1_form_context(organization, initiative),
+                setup_values=request.form.to_dict(),
+                **_phase1_form_context(organization, initiative, request.form),
             )
 
         if not organization:
@@ -1970,12 +1993,7 @@ def setup():
             ""
         ).strip()
 
-        deadline_value = request.form.get("deadline", "").strip()
-        initiative.deadline = (
-            datetime.strptime(deadline_value, "%Y-%m-%d").date()
-            if deadline_value
-            else None
-        )
+        initiative.deadline = parsed_deadline
 
         initiative.audience = request.form.get("audience", "").strip()
         initiative.needs = request.form.get("needs", "").strip()
@@ -1989,7 +2007,7 @@ def setup():
         session["initiative"] = get_initiative_profile()
 
         flash(
-            "Organization and sponsorship initiative saved.",
+            "Organization and sponsorship initiative saved. Continue on your Dashboard to review the next recommended action.",
             "success"
         )
         return redirect(url_for("workspace"))
@@ -1998,6 +2016,7 @@ def setup():
         "setup.html",
         organization=organization,
         initiative=initiative,
+        setup_values={},
         **_phase1_form_context(organization, initiative),
     )
 

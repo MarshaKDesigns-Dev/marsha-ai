@@ -122,8 +122,8 @@ Your analysis must:
 3. Clearly identify missing information as a risk or gap.
 4. Focus on sponsor value, audience access, community impact, brand alignment,
    visibility, engagement, and measurable business outcomes.
-5. Work for any nonprofit, association, chamber, sports league, museum,
-   school, community organization, or event.
+5. Work for the supplied organization type, including nonprofit, for-profit,
+   public/government, educational, association, community, or event entities.
 6. Avoid pageant-specific assumptions unless the supplied organization or
    initiative is actually a pageant.
 7. Return concrete, organization-specific analysis rather than generic

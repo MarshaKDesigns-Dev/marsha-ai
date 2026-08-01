@@ -186,8 +186,8 @@ Follow these rules:
    supported by the supplied information.
 7. Avoid pageant-specific assumptions unless the organization or initiative
    is actually related to pageantry.
-8. Work for nonprofits, associations, chambers, museums, schools, sports
-   leagues, community organizations, conferences, and events.
+8. Work for the supplied organization type, including nonprofit, for-profit,
+   public/government, educational, association, community, or event entities.
 9. Recommend relevant sponsor category slugs for every asset.
 10. Use only sponsor category slugs supplied in the prompt.
 11. Return between 3 and 15 distinct assets.

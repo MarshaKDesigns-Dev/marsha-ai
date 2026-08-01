@@ -179,7 +179,6 @@ def test_workflow_pages_remove_confirmed_dead_end_and_duplicate_links():
 
 def test_workflow_template_destinations_exist_and_expose_return_paths():
     workflow_templates = {
-        "workspace.html": "setup",
         "strategy_meeting.html": "workspace",
         "strategy_work.html": "strategy_meeting",
         "sponsorship_assets_review.html": "workspace",

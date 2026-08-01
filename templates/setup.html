@@ -43,7 +43,7 @@ Organization Setup · Sponsorship Coordinator
               class="form-control mb-3"
               id="organization_name"
               name="organization_name"
-              value="{{ organization.name if organization else '' }}"
+              value="{{ setup_values.get('organization_name', organization.name if organization else '') }}"
               required
             />
 
@@ -55,8 +55,8 @@ Organization Setup · Sponsorship Coordinator
               class="form-control mb-3"
               id="organization_type"
               name="organization_type"
-              placeholder="Nonprofit, association, foundation, pageant..."
-              value="{{ organization.organization_type if organization else '' }}"
+              placeholder="Nonprofit, for-profit business, government agency, school, association..."
+              value="{{ setup_values.get('organization_type', organization.organization_type if organization else '') }}"
             />
 
             <div class="row">
@@ -69,7 +69,7 @@ Organization Setup · Sponsorship Coordinator
                   class="form-control mb-3"
                   id="city"
                   name="city"
-                  value="{{ organization.city if organization else '' }}"
+                  value="{{ setup_values.get('city', organization.city if organization else '') }}"
                 />
               </div>
 
@@ -82,7 +82,7 @@ Organization Setup · Sponsorship Coordinator
                   class="form-control mb-3"
                   id="state"
                   name="state"
-                  value="{{ organization.state if organization else '' }}"
+                  value="{{ setup_values.get('state', organization.state if organization else '') }}"
                 />
               </div>
             </div>
@@ -97,7 +97,7 @@ Organization Setup · Sponsorship Coordinator
               name="mission"
               rows="6"
               required
-            >{{ organization.mission if organization else '' }}</textarea>
+            >{{ setup_values.get('mission', organization.mission if organization else '') }}</textarea>
 
             <label class="form-label fw-bold" for="website">
               Website
@@ -109,7 +109,7 @@ Organization Setup · Sponsorship Coordinator
               type="url"
               name="website"
               placeholder="https://"
-              value="{{ organization.website if organization else '' }}"
+              value="{{ setup_values.get('website', organization.website if organization else '') }}"
             />
 
             <label class="form-label fw-bold" for="phone">
@@ -120,7 +120,7 @@ Organization Setup · Sponsorship Coordinator
               class="form-control"
               id="phone"
               name="phone"
-              value="{{ organization.phone if organization else '' }}"
+              value="{{ setup_values.get('phone', organization.phone if organization else '') }}"
             />
           </div>
         </div>
@@ -142,7 +142,7 @@ Organization Setup · Sponsorship Coordinator
               class="form-control mb-3"
               id="sender_name"
               name="sender_name"
-              value="{{ organization.sender_name if organization else '' }}"
+              value="{{ setup_values.get('sender_name', organization.sender_name if organization else '') }}"
               required
             />
 
@@ -154,7 +154,7 @@ Organization Setup · Sponsorship Coordinator
               class="form-control mb-3"
               id="sender_title"
               name="sender_title"
-              value="{{ organization.sender_title if organization else '' }}"
+              value="{{ setup_values.get('sender_title', organization.sender_title if organization else '') }}"
               required
             />
 
@@ -167,20 +167,18 @@ Organization Setup · Sponsorship Coordinator
               id="sender_email"
               type="email"
               name="sender_email"
-              value="{{ organization.sender_email if organization else '' }}"
+              value="{{ setup_values.get('sender_email', organization.sender_email if organization else '') }}"
             />
 
-            <div class="action-card mt-4">
+            <div class="action-card mt-4" id="signature-preview" aria-live="polite">
               <strong>Message Signature Preview</strong>
-
-              <p class="mb-0 mt-2">
-                {{ organization.sender_name if organization and organization.sender_name else 'Sender Name' }}
-                <br />
-
-                {{ organization.sender_title if organization and organization.sender_title else 'Sender Title' }}
-                <br />
-
-                {{ organization.name if organization and organization.name else 'Organization Name' }}
+              <p class="mb-0 mt-2" id="signature-preview-empty">
+                Enter the sender name, title, and organization to preview the signature.
+              </p>
+              <p class="mb-0 mt-2" id="signature-preview-content" hidden>
+                <span id="signature-preview-name"></span><br />
+                <span id="signature-preview-title"></span><br />
+                <span id="signature-preview-organization"></span>
               </p>
             </div>
           </div>
@@ -200,7 +198,7 @@ Organization Setup · Sponsorship Coordinator
               id="initiative_name"
               name="initiative_name"
               placeholder="2026 Annual Gala, Community Program, Capital Campaign..."
-              value="{{ initiative.name if initiative else '' }}"
+              value="{{ setup_values.get('initiative_name', initiative.name if initiative else '') }}"
               required
             />
 
@@ -215,7 +213,7 @@ Organization Setup · Sponsorship Coordinator
                   id="fundraising_target"
                   name="fundraising_target"
                   placeholder="$25,000 cash + $10,000 in-kind"
-                  value="{{ initiative.fundraising_target if initiative else '' }}"
+                  value="{{ setup_values.get('fundraising_target', initiative.fundraising_target if initiative else '') }}"
                 />
               </div>
 
@@ -229,7 +227,7 @@ Organization Setup · Sponsorship Coordinator
                   id="deadline"
                   type="date"
                   name="deadline"
-                  value="{{ initiative.deadline.isoformat() if initiative and initiative.deadline else '' }}"
+                  value="{{ setup_values.get('deadline', initiative.deadline.isoformat() if initiative and initiative.deadline else '') }}"
                 />
               </div>
             </div>
@@ -244,7 +242,7 @@ Organization Setup · Sponsorship Coordinator
               name="audience"
               rows="4"
               placeholder="Who will sponsors reach, support, or influence?"
-            >{{ initiative.audience if initiative else '' }}</textarea>
+            >{{ setup_values.get('audience', initiative.audience if initiative else '') }}</textarea>
 
             <label class="form-label fw-bold" for="needs">
               Sponsorship Needs
@@ -256,7 +254,7 @@ Organization Setup · Sponsorship Coordinator
               name="needs"
               rows="5"
               placeholder="What should sponsorship revenue or in-kind support help provide?"
-            >{{ initiative.needs if initiative else '' }}</textarea>
+            >{{ setup_values.get('needs', initiative.needs if initiative else '') }}</textarea>
 
             {% include "_sponsorship_context_fields.html" %}
 
@@ -270,7 +268,7 @@ Organization Setup · Sponsorship Coordinator
               name="goals"
               rows="4"
               placeholder="What outcomes should this sponsorship initiative achieve?"
-            >{{ initiative.goals if initiative else '' }}</textarea>
+            >{{ setup_values.get('goals', initiative.goals if initiative else '') }}</textarea>
 
             <button class="btn btn-gold btn-lg w-100">
               {% if organization and initiative %}
@@ -288,4 +286,35 @@ Organization Setup · Sponsorship Coordinator
   </div>
 </div>
 
+{% endblock %}
+
+{% block scripts %}
+<script>
+(() => {
+  const fields = {
+    name: document.querySelector("#sender_name"),
+    title: document.querySelector("#sender_title"),
+    organization: document.querySelector("#organization_name")
+  };
+  const empty = document.querySelector("#signature-preview-empty");
+  const content = document.querySelector("#signature-preview-content");
+
+  function updateSignaturePreview() {
+    const values = Object.fromEntries(
+      Object.entries(fields).map(([key, field]) => [key, field.value.trim()])
+    );
+    const complete = values.name && values.title && values.organization;
+    empty.hidden = Boolean(complete);
+    content.hidden = !complete;
+    document.querySelector("#signature-preview-name").textContent = values.name;
+    document.querySelector("#signature-preview-title").textContent = values.title;
+    document.querySelector("#signature-preview-organization").textContent = values.organization;
+  }
+
+  Object.values(fields).forEach((field) => {
+    field.addEventListener("input", updateSignaturePreview);
+  });
+  updateSignaturePreview();
+})();
+</script>
 {% endblock %}

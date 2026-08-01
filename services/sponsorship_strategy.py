@@ -156,8 +156,8 @@ Follow these rules:
 7. Make the strategy specific to the organization and initiative.
 8. Avoid pageant-specific assumptions unless the organization or initiative
    is actually related to pageantry.
-9. Work for nonprofits, associations, chambers, museums, schools, sports
-   leagues, community organizations, conferences, and events.
+9. Work for the supplied organization type, including nonprofit, for-profit,
+   public/government, educational, association, community, or event entities.
 10. Do not generate sponsor company names, sponsor categories, sponsorship
     assets, pricing, or outreach messages in this response.
 """

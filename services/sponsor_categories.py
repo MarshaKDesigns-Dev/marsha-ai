@@ -167,8 +167,8 @@ Follow these rules:
 6. Avoid generic categories unless the supplied information supports them.
 7. Avoid pageant-specific assumptions unless the organization or initiative
    is actually related to pageantry.
-8. Work for nonprofits, associations, chambers, museums, schools, sports
-   leagues, community organizations, conferences, and events.
+8. Work for the supplied organization type, including nonprofit, for-profit,
+   public/government, educational, association, community, or event entities.
 9. Use unique lowercase URL-safe slugs.
 10. Assign unique consecutive priorities beginning with 1.
 11. Return between 3 and 10 categories.

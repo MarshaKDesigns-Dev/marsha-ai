@@ -17,17 +17,19 @@
     {% endfor %}
   </div>
 
-  <label class="form-label fw-bold" for="sponsorship_needs_other">Other Needs</label>
+  <label class="form-label fw-bold" for="sponsorship_needs_other">
+    Sponsorship Needs Not Listed Above
+  </label>
   <input class="form-control mb-3" id="sponsorship_needs_other"
     name="sponsorship_needs_other"
-    value="{{ initiative.sponsorship_needs_other if initiative and initiative.sponsorship_needs_other else '' }}"
-    placeholder="Describe a need not listed above">
+    value="{{ sponsorship_needs_other_value }}"
+    placeholder="Enter any unlisted sponsorship needs">
 
   <label class="form-label fw-bold" for="sponsorship_needs_notes">Needs Notes</label>
   <textarea class="form-control mb-3" id="sponsorship_needs_notes"
     name="sponsorship_needs_notes" rows="3"
     placeholder="Add quantities, timing, budget, or delivery details."
-  >{{ initiative.sponsorship_needs_notes if initiative and initiative.sponsorship_needs_notes else '' }}</textarea>
+  >{{ sponsorship_needs_notes_value }}</textarea>
 
   <label class="form-label fw-bold" for="desired_sponsor_categories">
     Desired Sponsor Categories

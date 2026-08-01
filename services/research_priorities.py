@@ -222,8 +222,8 @@ Follow these rules:
 12. Distinguish sponsorship fit from general charitable giving.
 13. Avoid pageant-specific assumptions unless the organization or initiative
     is actually related to pageantry.
-14. Work for nonprofits, associations, chambers, museums, schools, sports
-    leagues, community organizations, conferences, and events.
+14. Work for the supplied organization type, including nonprofit, for-profit,
+    public/government, educational, association, community, or event entities.
 15. Do not generate company names, contacts, email addresses, pricing,
     proposals, or outreach messages.
 16. Return priorities in the exact order of the supplied sponsor categories,
