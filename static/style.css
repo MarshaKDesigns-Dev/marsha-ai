@@ -706,10 +706,38 @@ a:hover { color: #e3dbff; }
   transform: translateY(-1px);
 }
 
+.strategy-review-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1rem;
+  margin: 1rem 0;
+}
+
+.strategy-review-section {
+  height: 100%;
+  margin: 0;
+}
+
+.strategy-review-section h2 { margin-top: 0.25rem; }
+.strategy-review-section li + li { margin-top: 0.75rem; }
+
+.strategy-actions {
+  margin-top: 1.5rem;
+  padding-top: 1rem;
+  border-top: 1px solid rgba(255, 255, 255, 0.14);
+}
+
+.strategy-actions-label {
+  width: 100%;
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
 @media (max-width: 767.98px) {
   .workflow-guidance { grid-template-columns: 1fr; }
 
   .workflow-guidance-action .btn { width: 100%; }
+  .strategy-review-grid { grid-template-columns: 1fr; }
 }
 .message { white-space: pre-wrap; }
 .work-card {

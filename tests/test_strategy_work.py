@@ -85,10 +85,15 @@ def test_strategy_work_renders_generated_content(monkeypatch):
     assert "Financial Services" in html
     assert "Scholarship Partner" in html
     assert "Limited staff capacity" in html
-    assert "Approve Sponsorship Strategy" in html
+    assert html.count("Approve Strategy &amp; Continue") == 1
+    assert "continue directly to Sponsor Research" in html
     assert "Edit Strategy Inputs" in html
     assert "Rebuild Strategy" in html
     assert 'name="regenerate" value="true"' in html
+    assert "STRATEGIC DIRECTION" in html
+    assert "DECISION PRIORITIES" in html
+    assert "WHO TO PURSUE" in html
+    assert "WHAT TO OFFER" in html
 
 
 def test_approved_strategy_remains_viewable_with_secondary_actions(monkeypatch):
@@ -107,9 +112,28 @@ def test_approved_strategy_remains_viewable_with_secondary_actions(monkeypatch):
 
     assert response.status_code == 200
     assert "Your Sponsorship Strategy" in html
+    assert "Your Sponsorship Strategy is approved" in html
+    assert "Return to Dashboard" in html
     assert "Edit Strategy Inputs" in html
     assert "Rebuild Strategy" in html
-    assert html.count("Approve Sponsorship Strategy") == 0
+    assert "Approve Strategy &amp; Continue" not in html
+
+
+def test_strategy_review_has_one_primary_decision_and_secondary_changes(monkeypatch):
+    _patch_context(monkeypatch)
+
+    html = app_module.app.test_client().get(
+        "/workspace/strategy"
+    ).get_data(as_text=True)
+
+    assert html.count('action="/workspace/strategy/approve"') == 1
+    assert html.count("Approve Strategy &amp; Continue") == 1
+    assert html.index("Approve Strategy &amp; Continue") < html.index(
+        "Edit Strategy Inputs"
+    )
+    assert "Need to make changes?" in html
+    assert 'href="/strategy-meeting"' in html
+    assert 'href="/workspace"' in html
 
 
 def test_strategy_approval_approves_assets_and_opens_research(monkeypatch):

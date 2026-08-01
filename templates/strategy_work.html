@@ -4,12 +4,14 @@
 {% block title %}Sponsorship Strategy · Marsha AI Sponsorship Coordinator{% endblock %}
 
 {% block content %}
+{% set review_title = 'Your Sponsorship Strategy is approved' if strategy_approved else 'Review and approve your Sponsorship Strategy' %}
+{% set review_next = 'Your approved Strategy is saved. Return to the Dashboard to continue your workflow.' if strategy_approved else 'Approve this Strategy to save the recommended assets and continue directly to Sponsor Research.' %}
 {{ workflow_guidance(
-  'Sponsorship Strategy ready for review',
+  review_title,
   'Your Strategy Worker completed the sponsorship strategy for ' ~ initiative.name ~ '.',
-  'The strategy, sponsor categories, and recommended assets are ready for your review.',
-  'Review the recommendations and approve the strategy to begin sponsor research.',
-  'Approve Sponsorship Strategy' if not strategy_approved else 'Return to Dashboard',
+  'Review the strategic direction, priorities, sponsor categories, and recommended assets below.',
+  review_next,
+  'Approve Strategy & Continue' if not strategy_approved else 'Return to Dashboard',
   url_for('approve_strategy_work') if not strategy_approved else url_for('workspace'),
   'btn-primary',
   'success',
@@ -19,20 +21,20 @@
 <section class="page-header">
   <p class="eyebrow">STRATEGY WORKER · READY FOR REVIEW</p>
   <h1>Your Sponsorship Strategy</h1>
-  <p>
-    Review the strategy and recommended sponsorship assets for
-    {{ initiative.name }} before sponsor research begins.
-  </p>
+  <p class="lead">Prepared for {{ initiative.name }}.</p>
 </section>
 
-<section class="workspace-section">
+<div class="strategy-review-grid strategy-review-grid-overview">
+<section class="workspace-section strategy-review-section">
+  <p class="eyebrow">STRATEGIC DIRECTION</p>
   <h2>Strategy summary</h2>
   <p>{{ strategy.get('positioning_statement', '') }}</p>
   <p><strong>Strategic theme:</strong> {{ strategy.get('strategic_theme', '') }}</p>
   <p>{{ strategy.get('recommended_approach', '') }}</p>
 </section>
 
-<section class="workspace-section">
+<section class="workspace-section strategy-review-section">
+  <p class="eyebrow">DECISION PRIORITIES</p>
   <h2>Priorities</h2>
   <ul>
     {% for objective in strategy.get('objectives', []) %}
@@ -43,8 +45,11 @@
     {% endfor %}
   </ul>
 </section>
+</div>
 
-<section class="workspace-section">
+<div class="strategy-review-grid">
+<section class="workspace-section strategy-review-section">
+  <p class="eyebrow">WHO TO PURSUE</p>
   <h2>Recommended sponsor categories</h2>
   <ul>
     {% for category in categories %}
@@ -53,7 +58,8 @@
   </ul>
 </section>
 
-<section class="workspace-section">
+<section class="workspace-section strategy-review-section">
+  <p class="eyebrow">WHAT TO OFFER</p>
   <h2>Recommended sponsorship assets</h2>
   <ul>
     {% for asset in assets %}
@@ -65,8 +71,9 @@
     {% endfor %}
   </ul>
 </section>
+</div>
 
-<section class="workspace-section">
+<section class="workspace-section strategy-review-constraints">
   <h2>Concerns and constraints</h2>
   <p>{{ initiative.strategy_concerns_constraints }}</p>
   {% if strategy.get('risks_or_constraints') %}
@@ -79,6 +86,7 @@
 </section>
 
 <div class="strategy-actions d-flex flex-wrap gap-2 align-items-center">
+  <span class="strategy-actions-label">Need to make changes?</span>
   <a class="btn btn-outline-light" href="{{ url_for('strategy_meeting') }}">
     Edit Strategy Inputs
   </a>
