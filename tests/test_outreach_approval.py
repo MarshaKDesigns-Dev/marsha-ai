@@ -102,6 +102,8 @@ def test_reviewed_message_requires_approval_before_send_actions():
     assert "/opportunity/16/approve-message" in rendered
     assert "/opportunity/16/send-email" not in rendered
     assert "/opportunity/16/mark-sent" not in rendered
+    assert rendered.count('action="/opportunity/16/approve-message"') == 1
+    assert rendered.count(">\n          Approve Outreach\n        </button>") == 1
 
 
 def test_approval_route_timestamps_existing_review_once(monkeypatch):
@@ -138,6 +140,8 @@ def test_approved_message_displays_existing_send_actions():
     assert "Approved for sending." in rendered
     assert "/opportunity/16/send-email" in rendered
     assert "/opportunity/16/mark-sent" in rendered
+    assert "/opportunity/16/reset-message-review" not in rendered
+    assert "/opportunity/16/approve-message" not in rendered
 
 
 def test_delivery_routes_reject_reviewed_but_unapproved_message(monkeypatch):

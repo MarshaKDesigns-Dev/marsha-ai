@@ -131,33 +131,23 @@
     'Sponsor research and contact discovery are complete.',
     'A verified contact route is ready for the Outreach Worker.',
     'Generate personalized Sponsor Outreach for review.',
-    'Generate Outreach',
-    url_for('generate_opportunity_outreach', opportunity_id=opp.id),
-    'btn-primary',
-    'success',
-    'POST'
+    status_type='success'
   ) }}
 {% elif opp.stage == 'Ready to Send' and not opp.message_reviewed_at %}
   {{ workflow_guidance(
-    'Review Outreach',
+    'Outreach draft ready',
     'The Outreach Worker generated a personalized draft.',
     'The outreach is waiting for Outreach Review.',
     'Review the outreach before approving it.',
-    'Review Outreach',
-    '#outreach-workflow',
-    'btn-primary',
-    'info'
+    status_type='info'
   ) }}
 {% elif opp.stage == 'Ready to Send' and not opp.message_approved_at %}
   {{ workflow_guidance(
-    'Approve Outreach',
+    'Final outreach decision',
     'The Outreach Review Worker improved and checked the outreach.',
     'The reviewed version is waiting for your approval.',
     'Review the final outreach and approve it before sending.',
-    'Approve Outreach',
-    '#outreach-workflow',
-    'btn-primary',
-    'success'
+    status_type='success'
   ) }}
 {% elif opp.stage == 'Ready to Send' %}
   {{ workflow_guidance(
@@ -185,9 +175,9 @@
   {{ workflow_guidance(
     'Outreach Delivered',
     'Outreach to ' ~ opp.recommended_target ~ ' was recorded as sent.',
-    'Your outreach has been recorded successfully.',
-    'Your outreach has been recorded successfully. Follow-up scheduled for '
-      ~ (opp.follow_up_date|string) ~ '.',
+    'Follow-Up is scheduled for ' ~ (opp.follow_up_date|string) ~ '.',
+    'Follow-Up is scheduled for ' ~ (opp.follow_up_date|string)
+      ~ '. No action is needed until then. This Sponsor Opportunity will return when Follow-Up is due.',
     'Research More Sponsors',
     url_for('research_worker'),
     'btn-primary',
@@ -355,7 +345,8 @@
 
       {% if opp.stage == 'Research Approved' and
       (opp.email or opp.phone or opp.contact_url) and
-      not opp.outreach and not opp.reviewed_message and not outreach_active %}
+      not opp.outreach and not opp.reviewed_message and not outreach_active and
+      not (outreach_generation_job and outreach_generation_job.status == 'failed') %}
       <div class="action-card mb-3">
         <strong>Verified contact route ready.</strong><br />
         Ask the Outreach Worker to generate Sponsor Outreach for review.
@@ -413,6 +404,7 @@
       </form>
       {% endif %}
 
+      {% if not opp.message_approved_at %}
       <form
         method="post"
         action="{{ url_for('reset_message_review', opportunity_id=opp.id) }}"
@@ -422,6 +414,7 @@
           Review Outreach Again
         </button>
       </form>
+      {% endif %}
 
       {% else %} {% if opp.outreach_channel == "phone" %}
       <div class="alert alert-warning">
@@ -468,7 +461,7 @@
         <input type="hidden" name="subject" value="" />
 
         {% if not opp.message_reviewed_at %}
-        <button class="btn btn-outline-dark w-100">
+        <button class="btn btn-primary w-100">
           Review Outreach
         </button>
         {% endif %}
@@ -517,7 +510,7 @@
         <input type="hidden" name="subject" value="" />
 
         {% if not opp.message_reviewed_at %}
-        <button class="btn btn-outline-dark w-100">
+        <button class="btn btn-primary w-100">
           Review Outreach
         </button>
         {% endif %}
@@ -575,7 +568,7 @@
         >
 
         {% if not opp.message_reviewed_at %}
-        <button class="btn btn-outline-dark w-100">
+        <button class="btn btn-primary w-100">
           Review Outreach
         </button>
         {% endif %}

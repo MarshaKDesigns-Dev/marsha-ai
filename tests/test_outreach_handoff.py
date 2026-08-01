@@ -101,6 +101,7 @@ def test_research_approved_opportunity_with_contact_shows_generate_action():
 
     assert "Generate Outreach" in rendered
     assert "/opportunity/33/generate-outreach" in rendered
+    assert rendered.count('action="/opportunity/33/generate-outreach"') == 1
 
 
 def test_research_approved_opportunity_without_contact_hides_generate_action():
@@ -120,7 +121,8 @@ def test_sent_opportunity_recommends_more_research():
     )
 
     assert "Outreach Delivered" in rendered
-    assert "Follow-up scheduled for 2026-08-05." in rendered
+    assert "Follow-Up is scheduled for 2026-08-05." in rendered
+    assert "No action is needed until then." in rendered
     assert "Research More Sponsors" in rendered
 
 
@@ -190,6 +192,7 @@ def test_generated_email_can_be_reviewed_and_sent_after_existing_approval():
 
     assert "review-message" in draft_rendered
     assert "Review Outreach" in draft_rendered
+    assert draft_rendered.count(">\n          Review Outreach\n        </button>") == 1
     assert "send-email" not in draft_rendered
 
     reviewed_rendered = render_opportunity(
@@ -202,6 +205,7 @@ def test_generated_email_can_be_reviewed_and_sent_after_existing_approval():
         )
     )
     assert "Approve Outreach" in reviewed_rendered
+    assert reviewed_rendered.count(">\n          Approve Outreach\n        </button>") == 1
     assert "send-email" not in reviewed_rendered
     assert "mark-sent" not in reviewed_rendered
 
@@ -217,6 +221,31 @@ def test_generated_email_can_be_reviewed_and_sent_after_existing_approval():
     )
     assert "send-email" in approved_rendered
     assert "mark-sent" in approved_rendered
+    assert "reset-message-review" not in approved_rendered
+
+
+def test_failed_generation_shows_retry_without_duplicate_generate_control():
+    item = opportunity()
+    with app_module.app.test_request_context(f"/opportunity/{item.id}"):
+        rendered = render_template(
+            "opportunity.html",
+            opp=item,
+            contact_research_job=None,
+            outreach_generation_job=SimpleNamespace(status="failed"),
+            follow_up_generation_job=None,
+            opportunity_progress=[],
+            stages=[],
+            test_mode=True,
+            test_email="test@example.org",
+            default_subject="",
+            display_message="",
+            review_notes=None,
+            follow_up_due=False,
+            follow_up_review_notes=None,
+        )
+
+    assert "Try Outreach Again" in rendered
+    assert "Generate Outreach" not in rendered
 
 
 def test_pipeline_shows_generate_outreach_for_eligible_opportunity():
