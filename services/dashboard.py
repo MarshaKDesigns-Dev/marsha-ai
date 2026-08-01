@@ -432,6 +432,16 @@ def _has_usable_contact(opportunity: Any) -> bool:
     )
 
 
+def _opportunity_name(opportunity: Any) -> str:
+    """Return the consistent customer-facing name for one Opportunity."""
+
+    return (
+        getattr(opportunity, "recommended_target", None)
+        or getattr(opportunity, "parent_prospect", None)
+        or "Sponsor Opportunity"
+    )
+
+
 def _outreach_is_available(opportunity: Any) -> bool:
     return bool(
         getattr(opportunity, "stage", None) == "Research Approved"
@@ -771,7 +781,11 @@ def _mission_control_team(
         "Message Quality Review Worker",
         "Needs Attention" if review_waiting else "Complete" if opportunities else "Waiting",
         (
-            f"{len(review_waiting)} outreach draft(s) waiting for review."
+            (
+                f"Outreach for {_opportunity_name(review_waiting[0])} is waiting for review."
+                if len(review_waiting) == 1
+                else f"{len(review_waiting)} outreach drafts are waiting for review."
+            )
             if review_waiting
             else "No outreach drafts are waiting for review."
             if opportunities
@@ -783,7 +797,11 @@ def _mission_control_team(
         "Follow-Up Worker",
         "Ready" if overdue_follow_ups else "Waiting",
         (
-            f"{len(overdue_follow_ups)} sponsor follow-up(s) are due."
+            (
+                f"Follow-Up for {_opportunity_name(overdue_follow_ups[0])} is due."
+                if len(overdue_follow_ups) == 1
+                else f"{len(overdue_follow_ups)} sponsor follow-ups are due."
+            )
             if overdue_follow_ups
             else "No sponsor follow-ups are due."
         ),
@@ -1384,6 +1402,7 @@ def _top_priority(
                 worker, icon, "Needs Attention", copy["failure_title"],
                 copy["failure_message"],
                 opportunity_action(failed[0], copy["retry_action"]), level="warning",
+                supporting_line=f"Sponsor Opportunity: {_opportunity_name(failed[0])}",
             )
     failed_research = sorted(
         [item for item in assignment_list if (
@@ -1434,6 +1453,7 @@ def _top_priority(
             "Follow-Up Worker", "pipeline", "Needs Attention",
             "Continue Follow-Up", f"A follow-up is due for {target}.",
             opportunity_action(item, "Continue Follow-Up"), level="warning",
+            supporting_line=f"Sponsor Opportunity: {_opportunity_name(item)}",
         )
 
     follow_up_review = [
@@ -1459,6 +1479,7 @@ def _top_priority(
             "Follow-Up Worker", "pipeline", "Working",
             copy["working_title"], copy["working_message"],
             opportunity_action(item, "View Follow-Up Progress"), level="info",
+            supporting_line=f"Sponsor Opportunity: {_opportunity_name(item)}",
         )
     if follow_up_review:
         item = follow_up_review[0]
@@ -1466,6 +1487,7 @@ def _top_priority(
             "Follow-Up Worker", "pipeline", "Waiting for you",
             "Review Follow-Up", "A generated follow-up is ready for review.",
             opportunity_action(item, "Review Follow-Up"),
+            supporting_line=f"Sponsor Opportunity: {_opportunity_name(item)}",
         )
     if follow_up_send:
         item = follow_up_send[0]
@@ -1473,6 +1495,7 @@ def _top_priority(
             "Follow-Up Worker", "pipeline", "Ready", "Send Follow-Up",
             "The reviewed follow-up is ready for delivery.",
             opportunity_action(item, "Send Follow-Up"),
+            supporting_line=f"Sponsor Opportunity: {_opportunity_name(item)}",
         )
     outreach_review = sorted([
         item for item in outreach_waiting
@@ -1507,6 +1530,7 @@ def _top_priority(
                 "Outreach Worker", "outreach", status, title, message,
                 opportunity_action(items[0], action_label),
                 level="info" if status == "Working" else "primary",
+                supporting_line=f"Sponsor Opportunity: {_opportunity_name(items[0])}",
             )
 
     contact_working = [
@@ -1522,6 +1546,7 @@ def _top_priority(
             copy["working_title"], copy["working_message"],
             opportunity_action(item, "View Contact Research Progress"),
             level="info",
+            supporting_line=f"Sponsor Opportunity: {_opportunity_name(item)}",
         )
 
     def assignment_is_reviewed(assignment):
@@ -1591,6 +1616,7 @@ def _top_priority(
             "Pipeline Worker", "pipeline", "Ready", "Continue Pipeline",
             "Choose or verify a contact route for this Sponsor Opportunity.",
             opportunity_action(item, "Continue Pipeline"),
+            supporting_line=f"Sponsor Opportunity: {_opportunity_name(item)}",
         )
     outreach_ready = [
         item for item in opportunity_list
@@ -1607,6 +1633,7 @@ def _top_priority(
             "Outreach Worker", "outreach", "Ready", "Generate Outreach",
             "This Sponsor Opportunity is ready for outreach preparation.",
             opportunity_action(item, "Generate Outreach"),
+            supporting_line=f"Sponsor Opportunity: {_opportunity_name(item)}",
         )
     pipeline_actionable = [
         item for item in opportunity_list
@@ -1919,12 +1946,14 @@ def build_dashboard(
             "Strategy and sponsor research",
         )
     elif outreach_review_needed:
+        target = _opportunity_name(outreach_review_needed[0])
         outreach_worker = DashboardWorker(
             "Outreach Worker",
             "Waiting for you",
             (
-                f"I've prepared {len(outreach_review_needed)} outreach item(s) for "
-                "your review."
+                f"I've prepared Sponsor Outreach for {target} for your review."
+                if len(outreach_review_needed) == 1
+                else f"I've prepared {len(outreach_review_needed)} outreach items for your review."
             ),
             DashboardAction(
                 "Review outreach",
@@ -1935,12 +1964,14 @@ def build_dashboard(
             "Your Outreach Review",
         )
     elif outreach_approval_needed:
+        target = _opportunity_name(outreach_approval_needed[0])
         outreach_worker = DashboardWorker(
             "Outreach Worker",
             "Waiting for you",
             (
-                f"{len(outreach_approval_needed)} reviewed outreach item(s) "
-                "await your approval."
+                f"Reviewed Sponsor Outreach for {target} awaits your approval."
+                if len(outreach_approval_needed) == 1
+                else f"{len(outreach_approval_needed)} reviewed outreach items await your approval."
             ),
             DashboardAction(
                 "Approve outreach",
@@ -1951,12 +1982,14 @@ def build_dashboard(
             "Your approval",
         )
     elif outreach_send_ready:
+        target = _opportunity_name(outreach_send_ready[0])
         outreach_worker = DashboardWorker(
             "Outreach Worker",
             "Ready",
             (
-                f"{len(outreach_send_ready)} approved outreach item(s) "
-                "are ready to send."
+                f"Approved Sponsor Outreach for {target} is ready to send."
+                if len(outreach_send_ready) == 1
+                else f"{len(outreach_send_ready)} approved outreach items are ready to send."
             ),
             DashboardAction(
                 "Send outreach",
@@ -1972,9 +2005,9 @@ def build_dashboard(
             "Outreach Worker",
             "Ready",
             (
-                f"{count} approved sponsor "
-                f"opportunit{'y is' if count == 1 else 'ies are'} "
-                "ready for outreach drafting."
+                f"{_opportunity_name(outreach_available[0])} is ready for outreach drafting."
+                if count == 1
+                else f"{count} approved Sponsor Opportunities are ready for outreach drafting."
             ),
             DashboardAction(
                 "Generate Outreach",
@@ -2021,8 +2054,9 @@ def build_dashboard(
             "Pipeline Worker",
             "Action required",
             (
-                f"I'm tracking {len(overdue_follow_ups)} follow-up(s) that "
-                "need your attention."
+                f"Follow-Up for {_opportunity_name(overdue_follow_ups[0])} needs your attention."
+                if len(overdue_follow_ups) == 1
+                else f"I'm tracking {len(overdue_follow_ups)} follow-ups that need your attention."
             ),
             DashboardAction(
                 "Open follow-up",
@@ -2083,8 +2117,18 @@ def build_dashboard(
                 status=top_priority.status,
                 message=top_priority.message,
                 action=top_priority.action,
-                detail_label="Current stage",
-                detail=top_priority.title,
+                detail_label=(
+                    "Sponsor Opportunity"
+                    if top_priority.supporting_line
+                    and top_priority.supporting_line.startswith("Sponsor Opportunity: ")
+                    else "Current stage"
+                ),
+                detail=(
+                    top_priority.supporting_line.removeprefix("Sponsor Opportunity: ")
+                    if top_priority.supporting_line
+                    and top_priority.supporting_line.startswith("Sponsor Opportunity: ")
+                    else top_priority.title
+                ),
             )
             break
 
@@ -2125,9 +2169,9 @@ def build_dashboard(
         top_priority=top_priority,
     )
     ai_team = _mission_control_team(
-        strategy_worker=strategy_worker,
-        research_worker=research_worker,
-        outreach_worker=outreach_worker,
+        strategy_worker=workers[0],
+        research_worker=workers[1],
+        outreach_worker=workers[2],
         strategy_ready=strategy_ready,
         opportunities=opportunity_list,
         overdue_follow_ups=overdue_follow_ups,

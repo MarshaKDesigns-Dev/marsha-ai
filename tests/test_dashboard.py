@@ -903,6 +903,12 @@ def test_contact_research_progress_and_failure_link_to_exact_opportunity():
     assert working.top_priority.action.route_params == {"opportunity_id": 1}
     assert failed.top_priority.action.label == "Try Contact Discovery Again"
     assert failed.top_priority.action.route_params == {"opportunity_id": 1}
+    assert working.top_priority.supporting_line == (
+        "Sponsor Opportunity: Example Sponsor"
+    )
+    assert failed.top_priority.supporting_line == (
+        "Sponsor Opportunity: Example Sponsor"
+    )
     assert "existing contact information were preserved" in (
         failed.top_priority.message
     )
@@ -919,6 +925,12 @@ def test_outreach_worker_states_resume_exact_opportunity():
     assert failed.top_priority.action.label == "Try Outreach Again"
     assert working.top_priority.action.route_params == {"opportunity_id": 1}
     assert failed.top_priority.action.route_params == {"opportunity_id": 1}
+    assert working.top_priority.supporting_line == (
+        "Sponsor Opportunity: Example Sponsor"
+    )
+    assert failed.top_priority.supporting_line == (
+        "Sponsor Opportunity: Example Sponsor"
+    )
     assert "review, approval, and delivery information were preserved" in (
         failed.top_priority.message
     )
@@ -951,6 +963,26 @@ def test_follow_up_resume_states_link_to_exact_opportunity():
         item.top_priority.action.route_params["opportunity_id"]
         for item in (working, failed, review, send)
     } == {1}
+    assert all(
+        item.top_priority.supporting_line
+        == "Sponsor Opportunity: Example Sponsor"
+        for item in (working, failed, review, send)
+    )
+
+
+def test_opportunity_name_is_consistent_in_priority_and_ai_team():
+    dashboard = build(opportunities=[opportunity(outreach="Draft")])
+    outreach_worker = next(
+        worker
+        for worker in dashboard.ai_team
+        if worker.name == "Outreach Worker"
+    )
+
+    assert dashboard.top_priority.supporting_line == (
+        "Sponsor Opportunity: Example Sponsor"
+    )
+    assert outreach_worker.detail_label == "Sponsor Opportunity"
+    assert outreach_worker.detail == "Example Sponsor"
 
 
 def test_equal_priority_uses_oldest_waiting_then_lowest_id():

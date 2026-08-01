@@ -59,6 +59,8 @@ def test_dashboard_template_keeps_worker_and_summary_sections_compact():
     assert "dashboard.workflow_progress" in template
     assert "mission-workflow-progress" in template
     assert "mission-control" in template
+    assert "worker.detail_label" in template
+    assert "worker.detail" in template
     assert "manual-status-refresh" in template
     assert "dashboard.current_stage" in template
     assert template.count("'btn-primary'") == 1

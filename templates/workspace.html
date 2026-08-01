@@ -117,6 +117,11 @@
           <span>{{ worker.status }}</span>
         </div>
         <p>{{ worker.message }}</p>
+        {% if worker.detail_label and worker.detail %}
+        <p class="worker-detail">
+          <strong>{{ worker.detail_label }}:</strong> {{ worker.detail }}
+        </p>
+        {% endif %}
       </article>
       {% endfor %}
     </div>
