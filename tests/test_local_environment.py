@@ -2,9 +2,13 @@
 
 from pathlib import Path
 from unittest.mock import MagicMock
+import os
 import subprocess
 
+from sqlalchemy import create_engine, inspect, text
+
 import scripts.migrate_local as migrate_local
+from app import db
 from scripts.verify_local import (
     CURRENT_FIELDS,
     LEGACY_FIELDS,
@@ -19,9 +23,161 @@ def test_migration_runner_has_one_explicit_order():
         "strategy_meeting_assets",
         "phase1_context",
         "asset_research_assignments",
+        "durable_research_assignments",
         "contact_research_jobs",
         "message_approval",
+        "outreach_generation_jobs",
+        "follow_up_generation_jobs",
+        "sponsor_research_diagnostics",
+        "research_assignment_selections",
     ]
+
+
+def test_migration_runner_contains_current_additive_migrations_only():
+    names = {item[0] for item in migrate_local.MIGRATIONS}
+
+    assert {
+        "durable_research_assignments",
+        "outreach_generation_jobs",
+        "follow_up_generation_jobs",
+        "sponsor_research_diagnostics",
+        "research_assignment_selections",
+    } <= names
+    assert "org_setup" not in names
+
+
+def test_normal_runner_builds_complete_empty_database_idempotently(tmp_path):
+    database_path = tmp_path / "clean-local.db"
+    environment = os.environ.copy()
+    environment["DATABASE_URL"] = f"sqlite:///{database_path.as_posix()}"
+    environment.pop("MARSHA_SKIP_CREATE_ALL", None)
+    command = [
+        str(ROOT / "venv" / "Scripts" / "python.exe"),
+        str(ROOT / "scripts" / "migrate_local.py"),
+    ]
+
+    first = subprocess.run(
+        command, cwd=ROOT, env=environment, capture_output=True, text=True,
+        check=True,
+    )
+    second = subprocess.run(
+        command, cwd=ROOT, env=environment, capture_output=True, text=True,
+        check=True,
+    )
+
+    assert "FAILED:" not in first.stderr
+    assert "FAILED:" not in second.stderr
+    engine = create_engine(environment["DATABASE_URL"])
+    inspector = inspect(engine)
+    model_tables = set(db.metadata.tables)
+    database_tables = set(inspector.get_table_names())
+    assert database_tables == model_tables
+    for table_name, table in db.metadata.tables.items():
+        assert {column.name for column in table.columns} == {
+            column["name"] for column in inspector.get_columns(table_name)
+        }
+
+    assert {
+        "active_key", "worker_id", "lease_expires_at", "available_at",
+        "attempt_count",
+    } <= {
+        column["name"]
+        for column in inspector.get_columns("research_assignment")
+    }
+    assert {
+        "message_approved_at", "follow_up_subject", "follow_up_message",
+        "follow_up_review_notes", "follow_up_reviewed_at",
+        "follow_up_completed_at",
+    } <= {
+        column["name"] for column in inspector.get_columns("opportunity")
+    }
+    assert {
+        "outreach_generation_job", "follow_up_generation_job",
+        "sponsor_research_diagnostic",
+        "sponsor_research_candidate_diagnostic",
+        "research_assignment_selection",
+    } <= database_tables
+    for job_table, claim_index, history_index in (
+        (
+            "outreach_generation_job",
+            "ix_outreach_generation_claim",
+            "ix_outreach_generation_history",
+        ),
+        (
+            "follow_up_generation_job",
+            "ix_follow_up_generation_claim",
+            "ix_follow_up_generation_history",
+        ),
+    ):
+        index_names = {
+            item["name"] for item in inspector.get_indexes(job_table)
+        }
+        assert {claim_index, history_index} <= index_names
+        assert any(
+            set(item["column_names"]) == {"active_key"}
+            for item in inspector.get_unique_constraints(job_table)
+        )
+        assert {
+            "opportunity_id", "organization_id", "initiative_id"
+        } <= {
+            column
+            for key in inspector.get_foreign_keys(job_table)
+            for column in key["constrained_columns"]
+        }
+
+    assert {
+        "ix_sponsor_research_diagnostic_assignment_history"
+    } <= {
+        item["name"]
+        for item in inspector.get_indexes("sponsor_research_diagnostic")
+    }
+    assert {
+        "ix_sponsor_research_candidate_diagnostic_history"
+    } <= {
+        item["name"]
+        for item in inspector.get_indexes(
+            "sponsor_research_candidate_diagnostic"
+        )
+    }
+    selection_indexes = {
+        item["name"]
+        for item in inspector.get_indexes("research_assignment_selection")
+    }
+    assert {
+        "ix_research_assignment_selection_assignment_history",
+        "ix_research_assignment_selection_prospect",
+    } <= selection_indexes
+    assert any(
+        set(item["column_names"]) == {
+            "research_assignment_id", "sponsor_prospect_id"
+        }
+        for item in inspector.get_unique_constraints(
+            "research_assignment_selection"
+        )
+    )
+    assert {
+        "research_assignment_id", "sponsor_prospect_id", "opportunity_id"
+    } == {
+        column
+        for key in inspector.get_foreign_keys(
+            "research_assignment_selection"
+        )
+        for column in key["constrained_columns"]
+    }
+    with engine.connect() as connection:
+        assert connection.execute(text("PRAGMA foreign_key_check")).all() == []
+        for table_name in database_tables:
+            assert connection.execute(
+                text(f'SELECT COUNT(*) FROM "{table_name}"')
+            ).scalar_one() == 0
+
+
+def test_startup_uses_the_single_normal_migration_runner():
+    source = (ROOT / "scripts" / "start_local.ps1").read_text(
+        encoding="utf-8"
+    )
+
+    assert source.count('Join-Path $PSScriptRoot "migrate_local.py"') == 1
 
 
 def test_migration_runner_skips_already_applied_work(monkeypatch):
@@ -65,7 +221,17 @@ def test_listener_ownership_helper_is_conservative():
         "ExecutablePath='C:\\Python314\\python.exe';"
         "CommandLine='python -m http.server 5000'"
         "};"
+        "$worker=[pscustomobject]@{"
+        "ExecutablePath='C:\\Python314\\python.exe';"
+        f"CommandLine='\"{python}\" -m services.sponsorship_intelligence_worker'"
+        "};"
+        "$legacyOwned=[pscustomobject]@{"
+        "ExecutablePath='C:\\Python314\\python.exe';"
+        f"CommandLine='\"{python}\" app.py'"
+        "};"
         "Write-Output (Test-MarshaLocalProcess -ProcessInfo $owned);"
+        "Write-Output (Test-MarshaLocalProcess -ProcessInfo $worker);"
+        "Write-Output (Test-MarshaLocalProcess -ProcessInfo $legacyOwned);"
         "Write-Output (Test-MarshaLocalProcess -ProcessInfo $unrelated)"
     )
 
@@ -84,7 +250,12 @@ def test_listener_ownership_helper_is_conservative():
         check=True,
     )
 
-    assert result.stdout.splitlines() == ["True", "False"]
+    assert result.stdout.splitlines() == [
+        "True",
+        "True",
+        "True",
+        "False",
+    ]
 
 
 def test_process_tooling_tracks_parent_child_and_orphan_processes():
@@ -102,8 +273,12 @@ def test_process_tooling_tracks_parent_child_and_orphan_processes():
     assert "ParentProcessId" in process_script
     assert "function Get-MarshaLocalProcesses" in process_script
     assert "function Stop-MarshaLocalProcesses" in process_script
-    assert "Stopping orphaned Marsha AI Flask process(es)." in start_script
+    assert "Stopping orphaned Marsha AI process(es)." in start_script
+    assert "-m services.sponsorship_intelligence_worker" in start_script
+    assert "strategy-worker-stdout.log" in start_script
+    assert "services.sponsorship_intelligence_worker" in process_script
     assert "Get-MarshaLocalProcesses" in stop_script
+    assert "no Marsha AI processes remain" in stop_script
 
 
 def test_strategy_route_is_unique_and_uses_repository_handler():

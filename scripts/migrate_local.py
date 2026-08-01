@@ -12,13 +12,30 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from app import ContactResearchJob, ResearchAssignment, app, db  # noqa: E402
+from app import (  # noqa: E402
+    ContactResearchJob,
+    FollowUpGenerationJob,
+    OutreachGenerationJob,
+    ResearchAssignment,
+    ResearchAssignmentSelection,
+    SponsorResearchCandidateDiagnostic,
+    SponsorResearchDiagnostic,
+    app,
+    db,
+)
 from migrate_asset_research_assignments import (  # noqa: E402
     COLUMNS as ASSET_RESEARCH_COLUMNS,
     run_migration as run_asset_research_migration,
 )
 from migrate_contact_research_jobs import (  # noqa: E402
     run_migration as run_contact_research_job_migration,
+)
+from migrate_durable_research_assignments import (  # noqa: E402
+    COLUMNS as DURABLE_RESEARCH_COLUMNS,
+    run_migration as run_durable_research_migration,
+)
+from migrate_follow_up_generation_jobs import (  # noqa: E402
+    run_migration as run_follow_up_generation_job_migration,
 )
 from migrate_message_approval import (  # noqa: E402
     COLUMNS as MESSAGE_APPROVAL_COLUMNS,
@@ -27,6 +44,15 @@ from migrate_message_approval import (  # noqa: E402
 from migrate_phase1_context import (  # noqa: E402
     COLUMNS as PHASE1_COLUMNS,
     run_migration as run_phase1_migration,
+)
+from migrate_outreach_generation_jobs import (  # noqa: E402
+    run_migration as run_outreach_generation_job_migration,
+)
+from migrate_research_assignment_selections import (  # noqa: E402
+    run_migration as run_research_assignment_selection_migration,
+)
+from migrate_sponsor_research_diagnostics import (  # noqa: E402
+    run_migration as run_sponsor_research_diagnostics_migration,
 )
 from migrate_strategy_meeting_answers import (  # noqa: E402
     INITIATIVE_COLUMNS as STRATEGY_ANSWER_COLUMNS,
@@ -39,6 +65,11 @@ from migrate_strategy_meeting_assets import (  # noqa: E402
 )
 
 
+# app.py's guarded create_all supplies the model tables on a brand-new local
+# database. This explicit order upgrades older databases without seed data:
+# foundational setup fields first, Research before its durable/diagnostic
+# dependants, Opportunity approval before its generation jobs, and selection
+# history only after Research, Sponsor Prospect, and Opportunity are present.
 MIGRATIONS = (
     (
         "strategy_meeting_answers",
@@ -76,6 +107,13 @@ MIGRATIONS = (
         },
     ),
     (
+        "durable_research_assignments",
+        run_durable_research_migration,
+        {
+            ResearchAssignment.__tablename__: set(DURABLE_RESEARCH_COLUMNS),
+        },
+    ),
+    (
         "contact_research_jobs",
         run_contact_research_job_migration,
         {
@@ -89,6 +127,51 @@ MIGRATIONS = (
         "message_approval",
         run_message_approval_migration,
         {"opportunity": set(MESSAGE_APPROVAL_COLUMNS)},
+    ),
+    (
+        "outreach_generation_jobs",
+        run_outreach_generation_job_migration,
+        {
+            OutreachGenerationJob.__tablename__: {
+                column.name
+                for column in OutreachGenerationJob.__table__.columns
+            },
+        },
+    ),
+    (
+        "follow_up_generation_jobs",
+        run_follow_up_generation_job_migration,
+        {
+            FollowUpGenerationJob.__tablename__: {
+                column.name
+                for column in FollowUpGenerationJob.__table__.columns
+            },
+        },
+    ),
+    (
+        "sponsor_research_diagnostics",
+        run_sponsor_research_diagnostics_migration,
+        {
+            SponsorResearchDiagnostic.__tablename__: {
+                column.name
+                for column in SponsorResearchDiagnostic.__table__.columns
+            },
+            SponsorResearchCandidateDiagnostic.__tablename__: {
+                column.name
+                for column in
+                SponsorResearchCandidateDiagnostic.__table__.columns
+            },
+        },
+    ),
+    (
+        "research_assignment_selections",
+        run_research_assignment_selection_migration,
+        {
+            ResearchAssignmentSelection.__tablename__: {
+                column.name
+                for column in ResearchAssignmentSelection.__table__.columns
+            },
+        },
     ),
 )
 
