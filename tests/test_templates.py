@@ -1,6 +1,7 @@
 ﻿from app import app
 
 from pathlib import Path
+import re
 
 
 def test_all_html_templates_compile():
@@ -160,3 +161,33 @@ def test_prospect_review_separates_verified_information_from_assessment():
     assert "Recommended Ask" in template
     assert "Why They May Say Yes" in template
     assert "RECOMMENDATION STRENGTH" in template
+
+
+def test_workflow_pages_remove_confirmed_dead_end_and_duplicate_links():
+    strategy = Path("templates/strategy_work.html").read_text(encoding="utf-8")
+    pipeline = Path("templates/pipeline.html").read_text(encoding="utf-8")
+    research = Path("templates/research_results.html").read_text(encoding="utf-8")
+
+    assert strategy.count("url_for('approve_strategy_work')") == 1
+    assert 'url_for(\'workspace\') }}">Return to Dashboard' in pipeline
+    assert 'url_for(\'home\') }}">Return to workspace' not in pipeline
+    assert "Research more for this asset" not in research
+    assert research.count("Choose another asset") == 1
+
+
+def test_workflow_template_destinations_exist_and_expose_return_paths():
+    workflow_templates = {
+        "workspace.html": "setup",
+        "strategy_meeting.html": "workspace",
+        "strategy_work.html": "strategy_meeting",
+        "sponsorship_assets_review.html": "workspace",
+        "research_worker.html": "workspace",
+        "research_results.html": "research_worker",
+        "pipeline.html": "workspace",
+        "opportunity.html": "show_pipeline",
+    }
+    for template_name, return_endpoint in workflow_templates.items():
+        source = Path("templates", template_name).read_text(encoding="utf-8")
+        endpoints = set(re.findall(r"url_for\(['\"]([^'\"]+)", source))
+        assert return_endpoint in endpoints, template_name
+        assert endpoints <= set(app.view_functions), template_name

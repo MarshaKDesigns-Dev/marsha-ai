@@ -46,6 +46,18 @@
     url_for('generate_opportunity_outreach', opportunity_id=opp.id),
     'btn-primary', 'warning', 'POST'
   ) }}
+{% elif follow_up_due and opp.follow_up_completed_at %}
+  {{ workflow_guidance(
+    'The next sponsor follow-up is due',
+    'Your previous Follow-Up was completed and remains in the Opportunity history.',
+    'The newly scheduled follow-up date has arrived.',
+    'Ask the Follow-Up Worker to prepare a new message for this cycle.',
+    'Generate New Follow-Up',
+    url_for('generate_follow_up', opportunity_id=opp.id),
+    'btn-primary',
+    'warning',
+    'POST'
+  ) }}
 {% elif follow_up_due and not opp.follow_up_message %}
   {{ workflow_guidance(
     'Sponsor follow-up is due',
@@ -634,12 +646,14 @@
 
       {% if follow_up_active %}
       <p>{{ background_work_helper }}</p>
-      {% elif not opp.follow_up_message %}
+      {% elif not opp.follow_up_message or opp.follow_up_completed_at %}
       <form
         method="post"
         action="{{ url_for('generate_follow_up', opportunity_id=opp.id) }}"
       >
-        <button class="btn btn-dark w-100">Generate Follow-Up</button>
+        <button class="btn btn-dark w-100">
+          {{ 'Generate New Follow-Up' if opp.follow_up_completed_at else 'Generate Follow-Up' }}
+        </button>
       </form>
       {% else %} {% if opp.follow_up_reviewed_at %}
       <div class="alert alert-success">

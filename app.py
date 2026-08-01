@@ -2748,9 +2748,7 @@ def review_research_assignment(assignment_id):
     action = request.form.get("action")
     if action == "reject_all":
         flash("Results left unchanged. No sponsors were saved.", "success")
-        return redirect(
-            url_for("research_assignment", assignment_id=assignment.id)
-        )
+        return redirect(url_for("research_worker"))
 
     raw_results = assignment.results
     if action == "save_all":

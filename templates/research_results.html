@@ -142,18 +142,6 @@
     </button>
   </div>
 </form>
-<hr class="my-4">
-<h2>What would you like me to research next?</h2>
-<div class="d-flex flex-wrap gap-2">
-  <form method="post" action="{{ url_for('start_asset_research', asset_id=asset.id) }}">
-    <button class="btn btn-outline-dark" type="submit">
-      Research more for this asset
-    </button>
-  </form>
-  <a class="btn btn-dark" href="{{ url_for('research_worker') }}">
-    Choose another asset
-  </a>
-</div>
 {% else %}
 <div class="empty-state">
   <h2>No qualified results were returned.</h2>

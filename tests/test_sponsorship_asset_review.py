@@ -83,7 +83,7 @@ def test_asset_review_enables_continuation_after_an_approval(monkeypatch):
     assert 'href="/workspace"' in html
     assert "Continue to Sponsor Research" in html
     assert (
-        '<a class="btn btn-primary btn-lg" href="/workspace">'
+        '<a class="btn btn-primary btn-lg" href="/research">'
         in html
     )
 

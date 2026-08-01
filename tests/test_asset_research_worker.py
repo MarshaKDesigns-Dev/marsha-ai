@@ -430,10 +430,37 @@ def test_research_templates_require_explicit_review_controls():
     assert "Saved from this assignment" in results
     assert "Already in Sponsor Pipeline" in results
     assert "Open Opportunity" in results
-    assert "Research more for this asset" in results
-    assert "Choose another asset" in results
+    assert "Research more for this asset" not in results
+    assert results.count("Choose another asset") == 1
     assert "assignment.error_details" not in results
     assert "worker_status_copy('research').failure_message" in results
+
+
+def test_leave_results_unchanged_returns_to_research_selection(monkeypatch):
+    organization = SimpleNamespace(id=11)
+    initiative = SimpleNamespace(id=22, organization_id=11)
+    assignment = SimpleNamespace(
+        id=44, organization_id=11, initiative_id=22,
+        sponsorship_asset_id=33, status="completed",
+    )
+    query = MagicMock()
+    query.filter_by.return_value.first_or_404.return_value = assignment
+    monkeypatch.setattr(app_module, "get_active_organization", lambda: organization)
+    monkeypatch.setattr(app_module, "get_active_initiative", lambda: initiative)
+    monkeypatch.setattr(
+        app_module, "ResearchAssignment", SimpleNamespace(query=query)
+    )
+    monkeypatch.setattr(
+        app_module, "_approved_research_asset", lambda *args: SimpleNamespace(id=33)
+    )
+
+    response = app_module.app.test_client().post(
+        "/research/assignments/44/review",
+        data={"action": "reject_all"},
+    )
+
+    assert response.status_code == 302
+    assert response.location.endswith("/research")
 
 
 def test_assignment_and_pipeline_models_preserve_asset_scope():

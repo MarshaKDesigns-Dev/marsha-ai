@@ -190,3 +190,31 @@ def test_research_failure_hides_internal_error_and_explains_preservation():
     assert "Try This Assignment Again" in rendered
     assert "RuntimeError" not in rendered
     assert "provider secret failure" not in rendered
+
+
+def test_new_follow_up_cycle_hides_completed_cycle_actions():
+    opportunity = SimpleNamespace(
+        id=33, recommended_target="Example Sponsor",
+        parent_prospect="Example Sponsor", contact_name="Jordan",
+        email="jordan@example.org", phone=None, contact_url=None,
+        outreach="Original outreach", reviewed_message="Reviewed outreach",
+        follow_up_message="Previously completed follow-up",
+        follow_up_reviewed_at="2026-07-31",
+        follow_up_completed_at="2026-08-01",
+        follow_up_date="2026-08-08", stage="Sent",
+        outreach_channel="email", sent_date="2026-07-20",
+    )
+    with app_module.app.test_request_context("/opportunity/33"):
+        rendered = render_template(
+            "opportunity.html", opp=opportunity,
+            contact_research_job=None, outreach_generation_job=None,
+            follow_up_generation_job=None, stages=[], test_mode=True,
+            test_email="test@example.org", default_subject="",
+            display_message="Original outreach", review_notes=None,
+            follow_up_due=True, follow_up_review_notes=None,
+        )
+
+    assert "The next sponsor follow-up is due" in rendered
+    assert "Generate New Follow-Up" in rendered
+    assert "Regenerate Follow-Up" not in rendered
+    assert "Complete Follow-Up" not in rendered
