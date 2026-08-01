@@ -1,5 +1,5 @@
 import json
-from datetime import datetime
+from datetime import datetime, timedelta
 
 import pytest
 from sqlalchemy import create_engine
@@ -12,11 +12,21 @@ from services.contact_research import (
 )
 from services.contact_research_worker import (
     claim_next_contact_research_job,
+    enqueue_contact_research_job,
     process_next_contact_research_job,
 )
 
 
 NOW = datetime(2026, 7, 28, 15, 0, 0)
+
+
+def test_contact_research_job_has_durable_claim_constraints():
+    columns = ContactResearchJob.__table__.c
+    assert columns.active_key.unique is True
+    assert {index.name for index in ContactResearchJob.__table__.indexes} >= {
+        "ix_contact_research_job_claim",
+        "ix_contact_research_job_opportunity_created",
+    }
 
 
 @pytest.fixture
@@ -36,6 +46,7 @@ def opportunity_with_jobs(session, *statuses):
         ContactResearchJob(
             opportunity_id=opportunity.id,
             status=status,
+            available_at=NOW,
         )
         for status in statuses
     ]
@@ -85,6 +96,120 @@ def test_queued_job_is_claimed_and_marked_processing(job_session):
     assert claimed.id == jobs[0].id
     assert claimed.status == "processing"
     assert claimed.started_at == NOW
+    assert claimed.worker_id == "contact-research-worker"
+    assert claimed.attempt_count == 1
+    assert claimed.lease_expires_at == NOW + timedelta(seconds=600)
+
+
+def test_duplicate_enqueue_reuses_active_job(job_session):
+    opportunity = Opportunity(parent_prospect="Example Sponsor")
+    job_session.add(opportunity)
+    job_session.commit()
+
+    first, created = enqueue_contact_research_job(
+        opportunity, session=job_session, now=NOW
+    )
+    second, duplicate_created = enqueue_contact_research_job(
+        opportunity, session=job_session, now=NOW
+    )
+
+    assert created is True
+    assert duplicate_created is False
+    assert second.id == first.id
+    assert first.active_key == str(opportunity.id)
+
+
+def test_expired_processing_job_is_reclaimed_but_active_lease_is_not(job_session):
+    opportunity, jobs = opportunity_with_jobs(job_session, "processing", "processing")
+    jobs[0].active_key = str(opportunity.id)
+    jobs[0].worker_id = "stale-worker"
+    jobs[0].attempt_count = 1
+    jobs[0].available_at = NOW - timedelta(hours=1)
+    jobs[0].lease_expires_at = NOW - timedelta(seconds=1)
+    jobs[1].worker_id = "active-worker"
+    jobs[1].available_at = NOW - timedelta(hours=1)
+    jobs[1].lease_expires_at = NOW + timedelta(seconds=1)
+    job_session.commit()
+
+    claimed = claim_next_contact_research_job(
+        "replacement-worker", session=job_session, now=NOW
+    )
+
+    assert claimed.id == jobs[0].id
+    assert claimed.worker_id == "replacement-worker"
+    assert claimed.attempt_count == 2
+    assert jobs[1].worker_id == "active-worker"
+
+
+def test_failed_attempt_releases_active_key_and_allows_retry(job_session):
+    opportunity = Opportunity(parent_prospect="Example Sponsor")
+    job_session.add(opportunity)
+    job_session.commit()
+    first, _ = enqueue_contact_research_job(
+        opportunity, session=job_session, now=NOW
+    )
+
+    process_next_contact_research_job(
+        session=job_session,
+        now=NOW,
+        result_factory=lambda item: (_ for _ in ()).throw(
+            RuntimeError("temporary failure")
+        ),
+    )
+    retry, created = enqueue_contact_research_job(
+        opportunity, session=job_session, now=NOW + timedelta(minutes=1)
+    )
+
+    assert first.status == "failed"
+    assert first.active_key is None
+    assert first.worker_id is None
+    assert first.lease_expires_at is None
+    assert created is True
+    assert retry.id != first.id
+
+
+def test_successful_retry_supersedes_failure_without_resetting_workflow(job_session):
+    opportunity = Opportunity(
+        parent_prospect="Example Sponsor",
+        stage="Sent",
+        outreach="Existing approved outreach",
+        sent_date=NOW.date(),
+    )
+    populate_existing_opportunity(opportunity)
+    job_session.add(opportunity)
+    job_session.commit()
+    first, _ = enqueue_contact_research_job(
+        opportunity, session=job_session, now=NOW
+    )
+    process_next_contact_research_job(
+        session=job_session,
+        now=NOW,
+        result_factory=lambda item: (_ for _ in ()).throw(
+            RuntimeError("temporary failure")
+        ),
+    )
+    retry, _ = enqueue_contact_research_job(
+        opportunity, session=job_session, now=NOW + timedelta(minutes=1)
+    )
+    process_next_contact_research_job(
+        session=job_session,
+        now=NOW + timedelta(minutes=1),
+        result_factory=lambda item: {
+            "result_type": "general_contact",
+            "email": "new-contact@example.org",
+            "why_this_contact": "Verified public contact route.",
+            "confidence": "high",
+            "evidence_urls": ["https://example.org/contact"],
+        },
+    )
+
+    saved = job_session.get(Opportunity, opportunity.id)
+    assert first.status == "failed"
+    assert retry.status == "completed"
+    assert saved.email == "new-contact@example.org"
+    assert saved.stage == "Sent"
+    assert saved.outreach == "Existing approved outreach"
+    assert saved.sent_date == NOW.date()
 
 
 def test_successful_job_persists_validated_result(job_session):

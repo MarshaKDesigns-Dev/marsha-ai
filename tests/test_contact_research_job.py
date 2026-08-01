@@ -1,7 +1,7 @@
 from datetime import datetime
 
 from flask import Flask
-from sqlalchemy import create_engine, inspect
+from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.orm import Session
 
 import migrate_contact_research_jobs as migration
@@ -73,6 +73,24 @@ def test_contact_research_job_migration_is_additive_and_idempotent(
     db.init_app(migration_app)
     monkeypatch.setattr(migration, "app", migration_app)
 
+    with migration_app.app_context():
+        db.session.execute(text("""
+            CREATE TABLE contact_research_job (
+              id INTEGER PRIMARY KEY, opportunity_id INTEGER NOT NULL,
+              status VARCHAR(20) NOT NULL, error_message TEXT,
+              result_json TEXT, provider_response_id VARCHAR(255),
+              input_tokens INTEGER, output_tokens INTEGER,
+              created_at DATETIME NOT NULL, started_at DATETIME,
+              completed_at DATETIME
+            )
+        """))
+        db.session.execute(text("""
+            INSERT INTO contact_research_job
+              (id, opportunity_id, status, created_at, completed_at)
+            VALUES (1, 9, 'completed', '2026-07-01', '2026-07-01')
+        """))
+        db.session.commit()
+
     migration.run_migration()
     migration.run_migration()
 
@@ -82,11 +100,20 @@ def test_contact_research_job_migration_is_additive_and_idempotent(
             column["name"]
             for column in inspector.get_columns("contact_research_job")
         }
+        saved = db.session.execute(text(
+            "SELECT opportunity_id, status, active_key, available_at, "
+            "attempt_count FROM contact_research_job WHERE id = 1"
+        )).one()
 
     assert columns == {
         "id",
         "opportunity_id",
         "status",
+        "active_key",
+        "worker_id",
+        "lease_expires_at",
+        "available_at",
+        "attempt_count",
         "error_message",
         "result_json",
         "provider_response_id",
@@ -96,3 +123,8 @@ def test_contact_research_job_migration_is_additive_and_idempotent(
         "started_at",
         "completed_at",
     }
+    assert saved.opportunity_id == 9
+    assert saved.status == "completed"
+    assert saved.active_key is None
+    assert saved.available_at is not None
+    assert saved.attempt_count == 0

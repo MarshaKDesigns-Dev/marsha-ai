@@ -1029,6 +1029,11 @@ class ContactResearchJob(db.Model):
         nullable=False,
     )
     status = db.Column(db.String(20), nullable=False, default="queued")
+    active_key = db.Column(db.String(255), nullable=True, unique=True)
+    worker_id = db.Column(db.String(255))
+    lease_expires_at = db.Column(db.DateTime)
+    available_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+    attempt_count = db.Column(db.Integer, nullable=False, default=0)
     error_message = db.Column(db.Text)
     result_json = db.Column(db.Text)
     provider_response_id = db.Column(db.String(255))
@@ -1044,6 +1049,12 @@ class ContactResearchJob(db.Model):
             name="ck_contact_research_job_status",
         ),
         db.Index("ix_contact_research_job_opportunity_created", "opportunity_id", "created_at"),
+        db.Index(
+            "ix_contact_research_job_claim",
+            "status",
+            "available_at",
+            "lease_expires_at",
+        ),
     )
 
 
@@ -3408,22 +3419,9 @@ def enqueue_contact_research(opportunity_id):
         initiative_id=getattr(initiative, "id", None),
     ).first_or_404()
 
-    active_job = ContactResearchJob.query.filter_by(
-        opportunity_id=opportunity.id,
-    ).filter(
-        ContactResearchJob.status.in_(("queued", "processing")),
-    ).order_by(
-        ContactResearchJob.created_at.desc(),
-        ContactResearchJob.id.desc(),
-    ).first()
-    if active_job is None:
-        db.session.add(
-            ContactResearchJob(
-                opportunity_id=opportunity.id,
-                status="queued",
-            )
-        )
-        db.session.commit()
+    from services.contact_research_worker import enqueue_contact_research_job
+
+    enqueue_contact_research_job(opportunity)
 
     return redirect(
         url_for("opportunity_detail", opportunity_id=opportunity.id)
