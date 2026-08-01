@@ -21,12 +21,12 @@
         <span class="badge text-bg-success">{{ saved_count }} saved</span>
         {% elif assignment and assignment.status in ['ready', 'working'] %}
         <span class="badge text-bg-primary">
-          {{ 'Queued' if assignment.status == 'ready' else 'Working' }}
+          Working
         </span>
         {% elif assignment and assignment.status == 'completed' %}
         <span class="badge text-bg-primary">Research Complete</span>
         {% elif assignment and assignment.status == 'needs_attention' %}
-        <span class="badge text-bg-warning">Needs attention</span>
+        <span class="badge text-bg-warning">{{ worker_status_copy('research').retry_action }}</span>
         {% else %}
         <span class="badge text-bg-secondary">Not researched</span>
         {% endif %}
@@ -41,8 +41,9 @@
         View Research Progress
       </a>
       <p class="mt-3 mb-0" role="status">
-        Research Worker is {{ 'queued' if assignment.status == 'ready' else 'working' }}.
-        You do not need to start this assignment again.
+        {{ worker_status_copy('research').working_title }}
+        {{ worker_status_copy('research').working_message }}
+        {{ background_work_helper }}
       </p>
       {% elif assignment and assignment.status == 'completed' %}
       <a class="btn btn-gold mt-auto"
@@ -56,12 +57,16 @@
         class="research-start-form mt-auto"
       >
         <button class="btn btn-gold" type="submit">
-          Research Sponsor Opportunity
+          {% if assignment and assignment.status == 'needs_attention' %}
+            {{ worker_status_copy('research').retry_action }}
+          {% else %}
+            Research Sponsor Opportunity
+          {% endif %}
         </button>
         <p class="research-progress mt-3 mb-0" hidden role="status">
           <span class="spinner-border spinner-border-sm" aria-hidden="true"></span>
-          Research Worker is working — reviewing the asset, searching for
-          qualified organizations, evaluating evidence, and ranking matches.
+          {{ worker_status_copy('research').working_title }}
+          {{ worker_status_copy('research').working_message }}
         </p>
       </form>
       {% endif %}
@@ -89,7 +94,7 @@
       href="{{ url_for('research_assignment', assignment_id=assignment.id) }}">
       <span>{{ assignment_asset_names.get(assignment.sponsorship_asset_id, 'Sponsor Opportunity') }}</span>
       <span class="badge text-bg-{{ 'success' if assignment.status == 'completed' else 'warning' if assignment.status == 'needs_attention' else 'primary' }}">
-        {{ 'Research Complete' if assignment.status == 'completed' else 'Needs attention' if assignment.status == 'needs_attention' else 'Working' if assignment.status == 'working' else 'Queued' }}
+        {{ 'Research Complete' if assignment.status == 'completed' else worker_status_copy('research').retry_action if assignment.status == 'needs_attention' else 'Working' }}
       </span>
     </a>
     {% endfor %}
@@ -102,7 +107,7 @@
     form.addEventListener("submit", () => {
       const button = form.querySelector("button[type='submit']");
       button.disabled = true;
-      button.textContent = "Research Worker is working";
+      button.textContent = {{ worker_status_copy('research').working_title|tojson }};
       form.querySelector(".research-progress").hidden = false;
     });
   });

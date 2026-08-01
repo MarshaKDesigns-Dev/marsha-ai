@@ -10,6 +10,7 @@ from services.sponsor_research_readiness import (
     strategy_meeting_is_complete,
 )
 from services.workflow_navigation import build_primary_navigation
+from services.workflow_labels import worker_status_copy
 
 ACTIVE_JOB_STATUSES = {"pending", "processing"}
 OUTREACH_ACTIVE_STAGES = {
@@ -281,13 +282,12 @@ def _build_recent_activity(
 ) -> tuple[DashboardActivity, ...]:
     items: list[DashboardActivity] = []
 
-    if generation_job is not None:
+    if generation_job is not None and (
+        (getattr(generation_job, "status", "") or "").lower() == "completed"
+    ):
         status = (getattr(generation_job, "status", "") or "").lower()
         messages = {
-            "pending": "Strategy work was queued.",
-            "processing": "The Strategy Worker started intelligence generation.",
             "completed": "The Strategy Worker completed intelligence generation.",
-            "failed": "Strategy work needs attention.",
         }
         item = _activity(
             messages.get(status, "Strategy work was updated."),
@@ -513,13 +513,12 @@ def _mission_control_attention(
         else ""
     )
     if job_status == "failed":
+        copy = worker_status_copy("strategy")
         items.append(
             DashboardAttention(
-                "Strategy generation needs attention",
-                getattr(generation_job, "message", None)
-                or "The Strategy Worker could not finish safely.",
+                copy["failure_title"], copy["failure_message"],
                 DashboardAction(
-                    "Retry Strategy Generation",
+                    copy["retry_action"],
                     "generate_workspace_sponsorship_intelligence",
                     "POST",
                 ),
@@ -538,13 +537,12 @@ def _mission_control_attention(
     for assignment in _latest_assignments_by_asset(assignments):
         status = (getattr(assignment, "status", "") or "").lower()
         if status == "needs_attention":
+            copy = worker_status_copy("research")
             items.append(
                 DashboardAttention(
-                    "Sponsor Research needs attention",
-                    getattr(assignment, "asset_name", None)
-                    or "A research assignment could not be completed.",
+                    copy["failure_title"], copy["failure_message"],
                     DashboardAction(
-                        "Retry Sponsor Research",
+                        copy["retry_action"],
                         "research_assignment",
                         route_params={"assignment_id": assignment.id},
                     ),
@@ -892,14 +890,14 @@ def _legacy_top_priority(
         )
 
     if job_status == "failed":
+        copy = worker_status_copy("strategy")
         return hero(
             "Strategy Worker",
             "strategy",
             "Needs Attention",
-            "Your Strategy Worker needs attention",
-            "Strategy generation stopped before completion.",
+            copy["failure_title"], copy["failure_message"],
             DashboardAction(
-                "Retry Strategy Generation",
+                copy["retry_action"],
                 "generate_workspace_sponsorship_intelligence",
                 "POST",
                 form_data=(
@@ -909,21 +907,17 @@ def _legacy_top_priority(
                 ),
             ),
             level="warning",
-            supporting_line=(
-                getattr(generation_job, "message", None)
-                or "Your existing intelligence was preserved."
-            ),
         )
 
     if job_status in ACTIVE_JOB_STATUSES:
+        copy = worker_status_copy("strategy")
         return hero(
             "Strategy Worker",
             "strategy",
             "Working",
-            "Your Strategy Worker is preparing your sponsorship strategy",
+            copy["working_title"],
             (
-                "I’m reviewing your organization, initiative, priorities, "
-                "goals, and constraints."
+                copy["working_message"]
             ),
             DashboardAction(),
             level="info",
@@ -1319,23 +1313,21 @@ def _top_priority(
         if generation_job is not None else ""
     )
     if job_status == "failed":
+        copy = worker_status_copy("strategy")
         return hero(
             "Strategy Worker", "strategy", "Needs Attention",
-            "Strategy generation needs attention",
-            "Strategy generation stopped before completion.",
+            copy["failure_title"], copy["failure_message"],
             DashboardAction(
-                "Retry Strategy Generation",
+                copy["retry_action"],
                 "generate_workspace_sponsorship_intelligence", "POST",
                 form_data={"regenerate": "true"} if intelligence else {},
             ), level="warning",
-            supporting_line=getattr(generation_job, "message", None)
-            or "Your existing intelligence was preserved.",
         )
     if job_status in ACTIVE_JOB_STATUSES:
+        copy = worker_status_copy("strategy")
         return hero(
             "Strategy Worker", "strategy", "Working",
-            "View Strategy Progress",
-            "Your Strategy Worker is preparing the sponsorship strategy.",
+            copy["working_title"], copy["working_message"],
             DashboardAction("View Strategy Progress", "workspace"),
             level="info",
         )
@@ -1365,35 +1357,33 @@ def _top_priority(
     # Failed durable work always outranks ordinary waiting work.
     failed_specs = (
         (
-            "follow_up_generation_job", "Follow-Up Worker", "pipeline",
-            "Retry Follow-Up Generation",
+            "follow_up_generation_job", "Follow-Up Worker", "pipeline", "follow_up",
             lambda item: not getattr(item, "follow_up_message", None),
         ),
         (
-            "outreach_generation_job", "Outreach Worker", "outreach",
-            "Retry Outreach Generation",
+            "outreach_generation_job", "Outreach Worker", "outreach", "outreach",
             lambda item: not (
                 getattr(item, "outreach", None)
                 or getattr(item, "reviewed_message", None)
             ),
         ),
         (
-            "contact_research_job", "Research Worker", "research",
-            "Retry Contact Research",
+            "contact_research_job", "Contact Discovery Worker", "research", "contact",
             lambda item: not _has_usable_contact(item),
         ),
     )
-    for attribute, worker, icon, label, failure_is_current in failed_specs:
+    for attribute, worker, icon, copy_key, failure_is_current in failed_specs:
         failed = [
             item for item in opportunity_list
             if job_state(item, attribute) == "failed"
             and failure_is_current(item)
         ]
         if failed:
+            copy = worker_status_copy(copy_key)
             return hero(
-                worker, icon, "Needs Attention", label,
-                "The background worker could not complete this task safely.",
-                opportunity_action(failed[0], label), level="warning",
+                worker, icon, "Needs Attention", copy["failure_title"],
+                copy["failure_message"],
+                opportunity_action(failed[0], copy["retry_action"]), level="warning",
             )
     failed_research = sorted(
         [item for item in assignment_list if (
@@ -1402,12 +1392,12 @@ def _top_priority(
     )
     if failed_research:
         item = failed_research[0]
+        copy = worker_status_copy("research")
         return hero(
             "Research Worker", "research", "Needs Attention",
-            "Retry Sponsor Research",
-            "Review the failed assignment and retry when ready.",
+            copy["failure_title"], copy["failure_message"],
             DashboardAction(
-                "Retry Sponsor Research", "research_assignment",
+                copy["retry_action"], "research_assignment",
                 route_params={"assignment_id": item.id},
             ), level="warning",
             supporting_line=getattr(item, "asset_name", None),
@@ -1464,10 +1454,10 @@ def _top_priority(
     ]
     if follow_up_working:
         item = follow_up_working[0]
+        copy = worker_status_copy("follow_up")
         return hero(
             "Follow-Up Worker", "pipeline", "Working",
-            "View Follow-Up Progress",
-            "Your Follow-Up Worker is preparing the next outreach.",
+            copy["working_title"], copy["working_message"],
             opportunity_action(item, "View Follow-Up Progress"), level="info",
         )
     if follow_up_review:
@@ -1501,20 +1491,21 @@ def _top_priority(
         item for item in opportunity_list
         if job_state(item, "outreach_generation_job") in {"queued", "working"}
     ]
-    for items, status, title, message in (
-        (outreach_working, "Working", "View Outreach Progress",
-         "Your Outreach Worker is preparing Sponsor Outreach."),
+    outreach_copy = worker_status_copy("outreach")
+    for items, status, title, message, action_label in (
+        (outreach_working, "Working", outreach_copy["working_title"],
+         outreach_copy["working_message"], "View Outreach Progress"),
         (outreach_send, "Ready", "Send Outreach",
-         "The approved Sponsor Outreach is ready for delivery."),
+         "The approved Sponsor Outreach is ready for delivery.", "Send Outreach"),
         (outreach_approval, "Waiting for you", "Approve Outreach",
-         "The reviewed Sponsor Outreach is waiting for approval."),
+         "The reviewed Sponsor Outreach is waiting for approval.", "Approve Outreach"),
         (outreach_review, "Waiting for you", "Continue Outreach Review",
-         "Prepared Sponsor Outreach is ready for quality review."),
+         "Prepared Sponsor Outreach is ready for quality review.", "Continue Outreach Review"),
     ):
         if items:
             return hero(
                 "Outreach Worker", "outreach", status, title, message,
-                opportunity_action(items[0], title),
+                opportunity_action(items[0], action_label),
                 level="info" if status == "Working" else "primary",
             )
 
@@ -1525,10 +1516,10 @@ def _top_priority(
     ]
     if contact_working:
         item = contact_working[0]
+        copy = worker_status_copy("contact")
         return hero(
-            "Research Worker", "research", "Working",
-            "View Contact Research Progress",
-            "Contact Discovery is researching a usable sponsor route.",
+            "Contact Discovery Worker", "research", "Working",
+            copy["working_title"], copy["working_message"],
             opportunity_action(item, "View Contact Research Progress"),
             level="info",
         )
@@ -1572,10 +1563,10 @@ def _top_priority(
         )
     if working_assignments:
         item = working_assignments[0]
+        copy = worker_status_copy("research")
         return hero(
             "Research Worker", "research", "Working",
-            "View Research Progress",
-            "Your Research Worker is evaluating sponsors for the selected opportunity.",
+            copy["working_title"], copy["working_message"],
             DashboardAction(
                 "View Research Progress", "research_assignment",
                 route_params={"assignment_id": item.id},
@@ -1795,23 +1786,25 @@ def build_dashboard(
     )
 
     if job_status == "failed":
+        copy = worker_status_copy("strategy")
         strategy_worker = DashboardWorker(
             "Strategy Worker",
             "Action required",
-            "I couldn't complete the strategy safely.",
+            copy["failure_message"],
             DashboardAction(
-                "Retry Strategy Generation",
+                copy["retry_action"],
                 "generate_workspace_sponsorship_intelligence",
                 "POST",
             ),
             "Current task",
-            "Retry strategy generation",
+            copy["retry_action"],
         )
     elif job_status in ACTIVE_JOB_STATUSES:
+        copy = worker_status_copy("strategy")
         strategy_worker = DashboardWorker(
             "Strategy Worker",
             "Working",
-            "I'm building your sponsorship strategy now.",
+            copy["working_message"],
             DashboardAction(),
             "Current task",
             "Analyze the active initiative",

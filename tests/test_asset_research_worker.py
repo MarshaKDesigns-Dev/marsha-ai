@@ -255,8 +255,10 @@ def test_persisted_failure_details_render_on_results_page(monkeypatch):
     response = app_module.app.test_client().get("/research/assignments/44")
 
     assert response.status_code == 200
-    assert b"What happened:" in response.data
-    assert b"Public evidence could not be verified." in response.data
+    assert b"Your Research Worker needs your attention." in response.data
+    assert b"saved sponsors, and pipeline records were preserved" in response.data
+    assert b"What happened:" not in response.data
+    assert b"Public evidence could not be verified." not in response.data
 
 
 def test_asset_research_route_enqueues_without_running_ai(
@@ -420,7 +422,7 @@ def test_research_templates_require_explicit_review_controls():
 
     assert "Which" in landing
     assert "Sponsor Opportunity would you like me to research first?" in landing
-    assert "Research Worker is working" in landing
+    assert "worker_status_copy('research').working_title" in landing
     assert "button.disabled = true" in landing
     assert "Save Selected to Sponsor Pipeline" in results
     assert "Save All to Sponsor Pipeline" in results
@@ -430,7 +432,8 @@ def test_research_templates_require_explicit_review_controls():
     assert "Open Opportunity" in results
     assert "Research more for this asset" in results
     assert "Choose another asset" in results
-    assert "assignment.error_details" in results
+    assert "assignment.error_details" not in results
+    assert "worker_status_copy('research').failure_message" in results
 
 
 def test_assignment_and_pipeline_models_preserve_asset_scope():

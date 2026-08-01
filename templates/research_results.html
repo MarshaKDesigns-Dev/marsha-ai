@@ -5,19 +5,19 @@
 
 {% if assignment.status in ['ready', 'working'] %}
   {{ workflow_guidance(
-    'Your Research Worker is queued' if assignment.status == 'ready' else 'Your Research Worker is working',
+    worker_status_copy('research').working_title,
     'Your Research Worker received the assignment for ' ~ asset.name ~ '.',
-    'Marsha AI is searching for qualified organizations and evaluating public evidence.',
-    'You can leave this page and return later. The results will appear here when ready.',
+    worker_status_copy('research').working_message,
+    background_work_helper,
     status_type='info'
   ) }}
 {% elif assignment.status == 'needs_attention' %}
   {{ workflow_guidance(
-    'Sponsor research needs attention',
+    worker_status_copy('research').failure_title,
     'The research attempt finished without saving any sponsors.',
-    'The assignment could not be completed, and your existing records were preserved.',
-    'Retry this assignment or choose another approved sponsorship opportunity.',
-    'Retry Sponsor Research',
+    worker_status_copy('research').failure_message,
+    'Use the action below to try this exact assignment again.',
+    worker_status_copy('research').retry_action,
     url_for('start_asset_research', asset_id=asset.id),
     'btn-gold',
     'warning',
@@ -57,23 +57,19 @@
 {% if assignment.status in ['ready', 'working'] %}
 <div class="alert alert-warning" role="status"
   data-research-status-url="{{ url_for('research_assignment_status', assignment_id=assignment.id) }}">
-  Research Worker is {{ 'queued' if assignment.status == 'ready' else 'working' }}.
+  {{ worker_status_copy('research').working_title }}
+  {{ worker_status_copy('research').working_message }}
+  {{ background_work_helper }}
 </div>
 {% elif assignment.status == 'needs_attention' %}
 <div class="alert alert-warning">
-  <strong>This assignment needs attention.</strong>
+  <strong>{{ worker_status_copy('research').failure_title }}</strong>
   <p class="mb-0">
-    The Research Worker could not complete this assignment. No sponsors were
-    saved. Please try again or select another sponsorship asset.
+    {{ worker_status_copy('research').failure_message }}
   </p>
-  {% if assignment.error_details %}
-  <p class="mb-0 mt-2">
-    <strong>What happened:</strong> {{ assignment.error_details }}
-  </p>
-  {% endif %}
 </div>
 <form method="post" action="{{ url_for('start_asset_research', asset_id=asset.id) }}">
-  <button class="btn btn-gold" type="submit">Try this assignment again</button>
+  <button class="btn btn-gold" type="submit">{{ worker_status_copy('research').retry_action }}</button>
 </form>
 {% elif results %}
 <form

@@ -67,10 +67,10 @@
   ) }}
 {% elif priority.state == 'follow_up_working' %}
   {{ workflow_guidance(
-    'Your Follow-Up Worker is working',
+    worker_status_copy('follow_up').working_title,
     'Follow-Up preparation was accepted.',
-    'Marsha AI is preparing the sponsor follow-up.',
-    'Open the Sponsor Opportunity to view progress.',
+    worker_status_copy('follow_up').working_message,
+    background_work_helper,
     'View Progress', url_for('opportunity_detail', opportunity_id=priority.opportunity.id),
     'btn-primary', 'info'
   ) }}
@@ -87,10 +87,10 @@
   ) }}
 {% elif priority.state == 'outreach_working' %}
   {{ workflow_guidance(
-    'Your Outreach Worker is working',
+    worker_status_copy('outreach').working_title,
     'Sponsor Outreach preparation was accepted.',
-    'Marsha AI is preparing the sponsor-specific message.',
-    'Open the Sponsor Opportunity to view progress.',
+    worker_status_copy('outreach').working_message,
+    background_work_helper,
     'View Progress', url_for('opportunity_detail', opportunity_id=priority.opportunity.id),
     'btn-primary', 'info'
   ) }}
@@ -227,11 +227,11 @@
           <td>
             {% if opp.follow_up_generation_job and opp.follow_up_generation_job.status in ['queued', 'working'] %}
             <a class="btn btn-dark btn-sm" href="{{ url_for('opportunity_detail', opportunity_id=opp.id) }}">
-              {{ 'Queued' if opp.follow_up_generation_job.status == 'queued' else 'View Progress' }}
+              View Follow-Up Progress
             </a>
             {% elif opp.outreach_generation_job and opp.outreach_generation_job.status in ['queued', 'working'] %}
             <a class="btn btn-dark btn-sm" href="{{ url_for('opportunity_detail', opportunity_id=opp.id) }}">
-              {{ 'Queued' if opp.outreach_generation_job.status == 'queued' else 'View Progress' }}
+              View Outreach Progress
             </a>
             {% elif opp.stage == 'Research Approved' and
             (opp.email or opp.phone or opp.contact_url) and

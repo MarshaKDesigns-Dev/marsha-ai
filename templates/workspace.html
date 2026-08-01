@@ -76,7 +76,9 @@
     >
       {% if dashboard.job_status in ['pending', 'processing'] %}
       <span class="status-spinner" aria-hidden="true"></span>
-      Your Strategy Worker is processing this initiative.
+      {{ worker_status_copy('strategy').working_title }}
+      {{ worker_status_copy('strategy').working_message }}
+      {{ background_work_helper }}
       {% endif %}
     </p>
   </div>
@@ -223,16 +225,18 @@
       const data = await response.json();
       if (activeStatuses.has(data.status)) {
         liveStatus.classList.remove("visually-hidden");
-        liveStatus.textContent = data.status === "pending"
-          ? "Strategy work is queued and waiting for the worker."
-          : "Your Strategy Worker is actively processing this initiative.";
+        liveStatus.textContent = {{ (
+          worker_status_copy('strategy').working_title ~ ' ' ~
+          worker_status_copy('strategy').working_message ~ ' ' ~
+          background_work_helper
+        )|tojson }};
         return;
       }
       if (timer) window.clearInterval(timer);
       liveStatus.classList.remove("visually-hidden");
       liveStatus.textContent = data.status === "failed"
-        ? (data.message || "Strategy generation needs attention.")
-        : "Strategy processing finished. Updating the dashboard.";
+        ? {{ worker_status_copy('strategy').failure_message|tojson }}
+        : "Strategy work finished. Updating the dashboard.";
       refreshDashboard();
     } catch (error) {
       liveStatus.classList.remove("visually-hidden");

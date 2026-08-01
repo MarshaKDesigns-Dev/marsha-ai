@@ -28,7 +28,12 @@ from services.sponsorship_context import (
     parse_multiline,
     validate_needs,
 )
-from services.workflow_labels import opportunity_stage_label, workflow_label
+from services.workflow_labels import (
+    BACKGROUND_WORK_HELPER,
+    opportunity_stage_label,
+    worker_status_copy,
+    workflow_label,
+)
 from services.workflow_navigation import (
     build_opportunity_progress,
     build_primary_navigation,
@@ -36,6 +41,8 @@ from services.workflow_navigation import (
 
 app.jinja_env.filters["workflow_label"] = workflow_label
 app.jinja_env.globals["opportunity_stage_label"] = opportunity_stage_label
+app.jinja_env.globals["worker_status_copy"] = worker_status_copy
+app.jinja_env.globals["background_work_helper"] = BACKGROUND_WORK_HELPER
 
 if __name__ == "__main__":
     sys.modules.setdefault("app", sys.modules[__name__])
@@ -2141,10 +2148,7 @@ def workspace_status():
         "refresh_url": url_for("workspace"),
     }
     if status == "failed":
-        response["message"] = (
-            getattr(job, "message", None)
-            or "Strategy generation needs attention."
-        )
+        response["message"] = worker_status_copy("strategy")["failure_message"]
     return jsonify(response)
 
 

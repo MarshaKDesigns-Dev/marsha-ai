@@ -3,6 +3,7 @@ from unittest.mock import MagicMock
 
 from flask import render_template
 from werkzeug.exceptions import NotFound
+import pytest
 
 import app as app_module
 import services.contact_research_worker as worker_module
@@ -120,6 +121,72 @@ def test_failed_contact_research_job_displays_failed():
             follow_up_review_notes=None,
         )
 
-    assert "Needs Attention" in rendered
-    assert "Contact research needs attention" in rendered
-    assert "Retry Contact Research" in rendered
+    assert "NEEDS ATTENTION" in rendered
+    assert "Your Contact Discovery Worker needs your attention." in rendered
+    assert "Try Contact Discovery Again" in rendered
+
+
+@pytest.mark.parametrize(
+    ("job_name", "title", "message"),
+    [
+        (
+            "outreach_generation_job",
+            "Your Outreach Worker is working.",
+            "Please wait while Marsha AI prepares the sponsor message.",
+        ),
+        (
+            "follow_up_generation_job",
+            "Your Follow-Up Worker is working.",
+            "Please wait while Marsha AI prepares the follow-up message.",
+        ),
+    ],
+)
+@pytest.mark.parametrize("status", ["queued", "working"])
+def test_active_generation_uses_approved_language(
+    job_name, title, message, status
+):
+    opportunity = SimpleNamespace(
+        id=33, recommended_target="Example Sponsor",
+        parent_prospect="Example Sponsor", contact_name="Jordan",
+        email="jordan@example.org", phone=None, contact_url=None,
+        outreach=None, reviewed_message=None, follow_up_message=None,
+        stage="Research Approved",
+    )
+    context = {
+        "opp": opportunity, "contact_research_job": None,
+        "outreach_generation_job": None, "follow_up_generation_job": None,
+        "stages": [], "test_mode": True, "test_email": "test@example.org",
+        "default_subject": "", "display_message": "", "review_notes": None,
+        "follow_up_due": False, "follow_up_review_notes": None,
+    }
+    context[job_name] = SimpleNamespace(status=status)
+    with app_module.app.test_request_context("/opportunity/33"):
+        rendered = render_template("opportunity.html", **context)
+
+    assert title in rendered
+    assert message in rendered
+    assert "Your work will continue in the background." in rendered
+    assert " is queued" not in rendered
+
+
+def test_research_failure_hides_internal_error_and_explains_preservation():
+    assignment = SimpleNamespace(
+        id=71,
+        status="needs_attention",
+        error_details="RuntimeError: provider secret failure",
+    )
+    asset = SimpleNamespace(id=18, name="Community activation")
+    with app_module.app.test_request_context("/research/assignments/71"):
+        rendered = render_template(
+            "research_results.html",
+            assignment=assignment,
+            asset=asset,
+            results=[],
+            saved_results={},
+        )
+
+    assert "Your Research Worker needs your attention." in rendered
+    assert "earlier research, saved sponsors, and pipeline records were preserved" in rendered
+    assert "Try This Assignment Again" in rendered
+    assert "RuntimeError" not in rendered
+    assert "provider secret failure" not in rendered

@@ -2,7 +2,13 @@ from datetime import date, datetime
 from pathlib import Path
 from types import SimpleNamespace
 
-from services.workflow_labels import opportunity_stage_label, workflow_label
+from services.workflow_labels import (
+    BACKGROUND_WORK_HELPER,
+    WORKER_STATUS_COPY,
+    opportunity_stage_label,
+    worker_status_copy,
+    workflow_label,
+)
 
 
 def opportunity(**overrides):
@@ -24,6 +30,23 @@ def test_workflow_label_maps_internal_values_without_changing_them():
     assert workflow_label("Message Review") == "Outreach Review"
     assert workflow_label("queued") == "Research Queued"
     assert workflow_label("needs_attention") == "Needs Attention"
+
+
+def test_worker_status_copy_is_complete_and_approved():
+    assert set(WORKER_STATUS_COPY) == {
+        "strategy", "research", "contact", "outreach", "follow_up"
+    }
+    for name in WORKER_STATUS_COPY:
+        copy = worker_status_copy(name)
+        assert copy["working_title"].endswith("is working.")
+        assert copy["working_message"].startswith("Please wait while Marsha AI")
+        assert copy["failure_title"].endswith("needs your attention.")
+        assert "preserved" in copy["failure_message"]
+        assert copy["retry_action"].startswith("Try ")
+    assert BACKGROUND_WORK_HELPER == (
+        "You may leave this page and return later. "
+        "Your work will continue in the background."
+    )
 
 
 def test_ready_to_send_label_requires_review_and_approval():
@@ -73,5 +96,5 @@ def test_workflow_templates_use_centralized_display_labels():
 
     assert "opportunity_stage_label(opp" in pipeline
     assert "opportunity_stage_label(opp" in opportunity_template
-    assert "contact_research_job.status|workflow_label" in opportunity_template
+    assert "worker_status_copy('contact')" in opportunity_template
     assert "contact_research_job.status|replace" not in opportunity_template

@@ -452,7 +452,11 @@ def test_workspace_status_reports_job_terminal_state(
     assert payload["terminal"] is terminal
     assert payload["refresh_url"] == "/workspace"
     if job_status == "failed":
-        assert payload["message"] == "Safe status message."
+        assert payload["message"] == (
+            "Marsha AI could not complete the strategy update. Your previously "
+            "saved strategy and setup information were preserved."
+        )
+        assert "Safe status message" not in payload["message"]
 
 
 def test_workspace_status_redirects_polling_to_setup_without_records(

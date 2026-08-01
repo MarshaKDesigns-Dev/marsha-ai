@@ -6,6 +6,73 @@ from datetime import date
 from typing import Any
 
 
+BACKGROUND_WORK_HELPER = (
+    "You may leave this page and return later. "
+    "Your work will continue in the background."
+)
+
+WORKER_STATUS_COPY = {
+    "strategy": {
+        "working_title": "Your Strategy Worker is working.",
+        "working_message": "Please wait while Marsha AI builds your sponsorship strategy.",
+        "failure_title": "Your Strategy Worker needs your attention.",
+        "failure_message": (
+            "Marsha AI could not complete the strategy update. Your previously "
+            "saved strategy and setup information were preserved."
+        ),
+        "retry_action": "Try Strategy Again",
+    },
+    "research": {
+        "working_title": "Your Research Worker is working.",
+        "working_message": "Please wait while Marsha AI searches for and evaluates sponsor opportunities.",
+        "failure_title": "Your Research Worker needs your attention.",
+        "failure_message": (
+            "Marsha AI could not complete this sponsor research assignment. Your "
+            "earlier research, saved sponsors, and pipeline records were preserved."
+        ),
+        "retry_action": "Try This Assignment Again",
+    },
+    "contact": {
+        "working_title": "Your Contact Discovery Worker is working.",
+        "working_message": "Please wait while Marsha AI looks for a verified contact route.",
+        "failure_title": "Your Contact Discovery Worker needs your attention.",
+        "failure_message": (
+            "Marsha AI could not complete the contact search. Your Opportunity and "
+            "any existing contact information were preserved."
+        ),
+        "retry_action": "Try Contact Discovery Again",
+    },
+    "outreach": {
+        "working_title": "Your Outreach Worker is working.",
+        "working_message": "Please wait while Marsha AI prepares the sponsor message.",
+        "failure_title": "Your Outreach Worker needs your attention.",
+        "failure_message": (
+            "Marsha AI could not complete the sponsor message. Your Opportunity, "
+            "contact details, prior message, review, approval, and delivery "
+            "information were preserved."
+        ),
+        "retry_action": "Try Outreach Again",
+    },
+    "follow_up": {
+        "working_title": "Your Follow-Up Worker is working.",
+        "working_message": "Please wait while Marsha AI prepares the follow-up message.",
+        "failure_title": "Your Follow-Up Worker needs your attention.",
+        "failure_message": (
+            "Marsha AI could not complete the follow-up message. Your original "
+            "outreach, delivery details, follow-up schedule, and prior follow-up "
+            "history were preserved."
+        ),
+        "retry_action": "Try Follow-Up Again",
+    },
+}
+
+
+def worker_status_copy(worker):
+    """Return approved customer-facing copy for one durable worker."""
+
+    return WORKER_STATUS_COPY[worker]
+
+
 WORKFLOW_LABELS = {
     "Organization": "Organization Setup",
     "Strategy": "Sponsorship Strategy",

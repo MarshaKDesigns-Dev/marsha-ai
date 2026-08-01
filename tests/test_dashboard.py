@@ -1,6 +1,8 @@
 from datetime import UTC, date, datetime, timedelta
 from types import SimpleNamespace
 
+import pytest
+
 from services.dashboard import build_dashboard
 
 
@@ -217,13 +219,14 @@ def test_failed_work_is_the_highest_priority():
     )
 
     assert dashboard.top_priority.title == (
-        "Strategy generation needs attention"
+        "Your Strategy Worker needs your attention."
     )
-    assert dashboard.top_priority.action.label == "Retry Strategy Generation"
+    assert dashboard.top_priority.action.label == "Try Strategy Again"
     assert dashboard.top_priority.action.form_data == {
         "regenerate": "true"
     }
-    assert dashboard.top_priority.supporting_line == "Safe failure."
+    assert dashboard.top_priority.supporting_line is None
+    assert "Safe failure" not in dashboard.top_priority.message
 
 
 def test_active_regeneration_precedes_stale_intelligence_state():
@@ -242,7 +245,7 @@ def test_active_regeneration_precedes_stale_intelligence_state():
     )
 
     assert dashboard.top_priority.title == (
-        "View Strategy Progress"
+        "Your Strategy Worker is working."
     )
 
 
@@ -503,7 +506,7 @@ def test_failed_research_assignment_uses_needs_attention_hero():
     assert dashboard.top_priority.worker_name == "Research Worker"
     assert dashboard.top_priority.status == "Needs Attention"
     assert dashboard.top_priority.action.label == (
-        "Retry Sponsor Research"
+        "Try This Assignment Again"
     )
 
 
@@ -898,8 +901,11 @@ def test_contact_research_progress_and_failure_link_to_exact_opportunity():
     )])
     assert working.top_priority.action.label == "View Contact Research Progress"
     assert working.top_priority.action.route_params == {"opportunity_id": 1}
-    assert failed.top_priority.action.label == "Retry Contact Research"
+    assert failed.top_priority.action.label == "Try Contact Discovery Again"
     assert failed.top_priority.action.route_params == {"opportunity_id": 1}
+    assert "existing contact information were preserved" in (
+        failed.top_priority.message
+    )
 
 
 def test_outreach_worker_states_resume_exact_opportunity():
@@ -910,9 +916,12 @@ def test_outreach_worker_states_resume_exact_opportunity():
         outreach_generation_job=SimpleNamespace(status="failed"),
     )])
     assert working.top_priority.action.label == "View Outreach Progress"
-    assert failed.top_priority.action.label == "Retry Outreach Generation"
+    assert failed.top_priority.action.label == "Try Outreach Again"
     assert working.top_priority.action.route_params == {"opportunity_id": 1}
     assert failed.top_priority.action.route_params == {"opportunity_id": 1}
+    assert "review, approval, and delivery information were preserved" in (
+        failed.top_priority.message
+    )
 
 
 def test_follow_up_resume_states_link_to_exact_opportunity():
@@ -932,7 +941,10 @@ def test_follow_up_resume_states_link_to_exact_opportunity():
         follow_up_reviewed_at=NOW,
     )])
     assert working.top_priority.action.label == "View Follow-Up Progress"
-    assert failed.top_priority.action.label == "Retry Follow-Up Generation"
+    assert failed.top_priority.action.label == "Try Follow-Up Again"
+    assert "prior follow-up history were preserved" in (
+        failed.top_priority.message
+    )
     assert review.top_priority.action.label == "Review Follow-Up"
     assert send.top_priority.action.label == "Send Follow-Up"
     assert {
@@ -1023,7 +1035,7 @@ def test_active_follow_up_supersedes_older_persisted_draft_state():
     )])
 
     assert dashboard.top_priority.status == "Working"
-    assert dashboard.top_priority.title == "View Follow-Up Progress"
+    assert dashboard.top_priority.title == "Your Follow-Up Worker is working."
     assert dashboard.top_priority.action.route_params == {
         "opportunity_id": 1
     }
@@ -1037,7 +1049,40 @@ def test_active_outreach_supersedes_older_persisted_review_state():
     )])
 
     assert dashboard.top_priority.status == "Working"
-    assert dashboard.top_priority.title == "View Outreach Progress"
+    assert dashboard.top_priority.title == "Your Outreach Worker is working."
+
+
+@pytest.mark.parametrize("status", ["pending", "processing"])
+def test_strategy_active_states_use_approved_working_copy(status):
+    dashboard = build(generation_job=SimpleNamespace(status=status))
+    assert dashboard.top_priority.title == "Your Strategy Worker is working."
+    assert dashboard.top_priority.message == (
+        "Please wait while Marsha AI builds your sponsorship strategy."
+    )
+
+
+@pytest.mark.parametrize("status", ["ready", "working"])
+def test_research_active_states_use_approved_working_copy(status):
+    dashboard = build(research_assignments=[assignment(status)])
+    assert dashboard.top_priority.title == "Your Research Worker is working."
+    assert dashboard.top_priority.message == (
+        "Please wait while Marsha AI searches for and evaluates sponsor opportunities."
+    )
+
+
+@pytest.mark.parametrize("status", ["queued", "processing"])
+def test_contact_active_states_use_approved_working_copy(status):
+    dashboard = build(opportunities=[opportunity(
+        stage="Research Approved",
+        contact_research_job=SimpleNamespace(status=status),
+    )])
+    assert dashboard.top_priority.worker_name == "Contact Discovery Worker"
+    assert dashboard.top_priority.title == (
+        "Your Contact Discovery Worker is working."
+    )
+    assert dashboard.top_priority.message == (
+        "Please wait while Marsha AI looks for a verified contact route."
+    )
     assert dashboard.top_priority.action.route_params == {
         "opportunity_id": 1
     }

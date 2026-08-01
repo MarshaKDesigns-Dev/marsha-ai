@@ -12,37 +12,37 @@
 {% set follow_up_active = follow_up_generation_job and follow_up_generation_job.status in ['queued', 'working'] %}
 {% if follow_up_active %}
   {{ workflow_guidance(
-    'Your Follow-Up Worker is queued' if follow_up_generation_job.status == 'queued' else 'Your Follow-Up Worker is working',
+    worker_status_copy('follow_up').working_title,
     'Your request to prepare the follow-up was accepted.',
     'Marsha AI is preparing a follow-up based on the original outreach, delivery history, opportunity stage, and scheduled follow-up.',
-    'You can leave this page and return later.', status_type='info'
+    worker_status_copy('follow_up').working_message ~ ' ' ~ background_work_helper, status_type='info'
   ) }}
-  <div data-follow-up-status-url="{{ url_for('follow_up_generation_status', opportunity_id=opp.id) }}" role="status">Working</div>
+  <div data-follow-up-status-url="{{ url_for('follow_up_generation_status', opportunity_id=opp.id) }}" role="status">{{ worker_status_copy('follow_up').working_title }}</div>
 {% elif follow_up_generation_job and follow_up_generation_job.status == 'failed' and not opp.follow_up_message %}
   {{ workflow_guidance(
-    'Follow-Up generation needs attention',
+    worker_status_copy('follow_up').failure_title,
     'The Follow-Up Worker could not prepare the draft.',
-    'Your original outreach, delivery history, and Opportunity data were preserved.',
-    'Retry Follow-Up Generation when ready.',
-    'Retry Follow-Up Generation', url_for('generate_follow_up', opportunity_id=opp.id),
+    worker_status_copy('follow_up').failure_message,
+    'Use the action below to try the follow-up again.',
+    worker_status_copy('follow_up').retry_action, url_for('generate_follow_up', opportunity_id=opp.id),
     'btn-primary', 'warning', 'POST'
   ) }}
 {% elif outreach_active %}
   {{ workflow_guidance(
-    'Your Outreach Worker is queued' if outreach_generation_job.status == 'queued' else 'Your Outreach Worker is working',
+    worker_status_copy('outreach').working_title,
     'Your request to prepare Sponsor Outreach was accepted.',
     'Marsha AI is preparing a sponsor-specific outreach message using the approved opportunity, verified contact route, sponsorship ask, and organization information.',
-    'You can leave this page and return later.',
+    worker_status_copy('outreach').working_message ~ ' ' ~ background_work_helper,
     status_type='info'
   ) }}
-  <div data-outreach-status-url="{{ url_for('outreach_generation_status', opportunity_id=opp.id) }}" role="status">Working</div>
+  <div data-outreach-status-url="{{ url_for('outreach_generation_status', opportunity_id=opp.id) }}" role="status">{{ worker_status_copy('outreach').working_title }}</div>
 {% elif outreach_generation_job and outreach_generation_job.status == 'failed' and not opp.outreach %}
   {{ workflow_guidance(
-    'Outreach generation needs attention',
+    worker_status_copy('outreach').failure_title,
     'The Outreach Worker could not prepare the message.',
-    'Your Sponsor Opportunity and contact data were preserved.',
-    'Retry Outreach Generation when you are ready.',
-    'Retry Outreach Generation',
+    worker_status_copy('outreach').failure_message,
+    'Use the action below to try the sponsor message again.',
+    worker_status_copy('outreach').retry_action,
     url_for('generate_opportunity_outreach', opportunity_id=opp.id),
     'btn-primary', 'warning', 'POST'
   ) }}
@@ -82,20 +82,20 @@
   ) }}
 {% elif not has_contact and contact_working %}
   {{ workflow_guidance(
-    'Contact research is underway',
+    worker_status_copy('contact').working_title,
     opp.recommended_target ~ ' is saved as a Sponsor Opportunity.',
-    'The Contact Research Worker is checking public sources for a reliable route.',
-    'Wait for contact research to finish, then prepare personalized outreach.',
+    worker_status_copy('contact').working_message,
+    background_work_helper,
     status_type='info'
   ) }}
 {% elif not has_contact and contact_research_job and
   contact_research_job.status == 'failed' %}
   {{ workflow_guidance(
-    'Contact research needs attention',
+    worker_status_copy('contact').failure_title,
     'The Contact Research Worker could not find a usable contact route.',
-    'Your Sponsor Opportunity and existing research were preserved.',
-    'Retry Contact Research when ready.',
-    'Retry Contact Research',
+    worker_status_copy('contact').failure_message,
+    'Use the action below to try Contact Discovery again.',
+    worker_status_copy('contact').retry_action,
     url_for('enqueue_contact_research', opportunity_id=opp.id),
     'btn-primary',
     'warning',
@@ -242,7 +242,11 @@
       <div class="alert alert-warning">
         <strong>Contact Research Needed</strong>
         {% if contact_research_job %}
-        <br />{{ contact_research_job.status|workflow_label }}
+        <br />{% if contact_working %}
+          {{ worker_status_copy('contact').working_title }}
+        {% elif contact_research_job.status == 'failed' %}
+          {{ worker_status_copy('contact').failure_title }}
+        {% endif %}
         {% endif %}
       </div>
       <form
@@ -339,7 +343,7 @@
 
       {% if opp.stage == 'Research Approved' and
       (opp.email or opp.phone or opp.contact_url) and
-      not opp.outreach and not opp.reviewed_message %}
+      not opp.outreach and not opp.reviewed_message and not outreach_active %}
       <div class="action-card mb-3">
         <strong>Verified contact route ready.</strong><br />
         Ask the Outreach Worker to generate Sponsor Outreach for review.
@@ -628,7 +632,9 @@
         <strong>Follow-Up Due:</strong> {{ opp.follow_up_date }}
       </div>
 
-      {% if not opp.follow_up_message %}
+      {% if follow_up_active %}
+      <p>{{ background_work_helper }}</p>
+      {% elif not opp.follow_up_message %}
       <form
         method="post"
         action="{{ url_for('generate_follow_up', opportunity_id=opp.id) }}"
