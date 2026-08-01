@@ -222,6 +222,6 @@ def test_persistence_failure_surfaces_specific_message_and_log(
 
     response = app_module.app.test_client().post("/prospects/technology")
 
-    assert b"prospects could not be saved" in response.data
+    assert b"sponsors could not be saved" in response.data
     assert "sponsor_research_persistence_failed" in caplog.text
     assert "sensitive database detail" not in caplog.text

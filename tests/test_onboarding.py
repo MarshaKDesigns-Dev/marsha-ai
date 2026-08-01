@@ -16,10 +16,11 @@ def test_home_page_has_new_customer_setup_path():
 
 def test_navigation_exposes_core_product_pages():
     template = read_text("templates/base.html")
+    workflow_navigation = read_text("services/workflow_navigation.py")
 
-    assert "Organization" in template
+    assert "Organization" in workflow_navigation
     assert "Dashboard" in template
-    assert "Pipeline" in template
+    assert "Pipeline" in workflow_navigation
     assert "Coming soon" in template
     assert "bootstrap.bundle.min.js" in template
 
@@ -129,9 +130,9 @@ def test_workspace_uses_database_backed_organization_and_initiative():
 
     assert "{{ organization.name }}" in template
     assert "{{ initiative.name }}" in template
-    assert "View pipeline" in template
-    assert "url_for('show_pipeline')" in template
-    assert "Edit setup" in template
+    assert "dashboard.continue_links" in template
+    assert "url_for(link.endpoint)" in template
+    assert "Organization Setup" in template
 
 
 def test_workspace_route_requires_completed_setup():

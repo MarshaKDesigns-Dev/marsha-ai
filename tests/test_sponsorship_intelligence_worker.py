@@ -8,6 +8,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
 
 from app import SponsorshipIntelligenceJob, app, db
+import services.sponsorship_intelligence_worker as worker_module
 from services.sponsorship_intelligence_jobs import claim_next_job
 from services.sponsorship_intelligence_worker import (
     UNEXPECTED_FAILURE_MESSAGE,
@@ -67,6 +68,64 @@ def test_startup_database_and_polling_logs_are_visible():
         "sponsorship_intelligence_worker_polling_loop_entered "
         "worker_id=worker-1"
     ) in output
+
+
+def test_worker_uses_600_second_default_budget(monkeypatch):
+    monkeypatch.delenv("BACKGROUND_WORKFLOW_BUDGET_SECONDS", raising=False)
+    process = MagicMock(return_value=False)
+
+    run_worker(
+        worker_id="worker-default-budget",
+        lease_seconds=600.0,
+        poll_interval_seconds=3.0,
+        max_attempts=3,
+        process=process,
+        sleeper=MagicMock(),
+        clock=lambda: 0.0,
+        log_stream=StringIO(),
+        max_iterations=1,
+    )
+
+    assert process.call_args.kwargs["workflow_budget_seconds"] == 600.0
+
+
+def test_dispatcher_round_robins_all_three_work_types(monkeypatch):
+    calls = []
+    monkeypatch.setattr(
+        worker_module,
+        "process_next_job",
+        lambda **kwargs: calls.append("strategy") or True,
+    )
+    monkeypatch.setattr(
+        worker_module,
+        "process_next_sponsor_research_assignment",
+        lambda **kwargs: calls.append("sponsor") or True,
+    )
+    monkeypatch.setattr(
+        worker_module,
+        "process_next_contact_research_job",
+        lambda: calls.append("contact") or True,
+    )
+    monkeypatch.setattr(
+        worker_module,
+        "process_next_outreach_generation_job",
+        lambda **kwargs: calls.append("outreach") or True,
+    )
+    monkeypatch.setattr(
+        worker_module,
+        "process_next_follow_up_generation_job",
+        lambda **kwargs: calls.append("follow_up") or True,
+    )
+    worker_module._dispatch_cursor = 0
+    arguments = dict(
+        worker_id="worker",
+        workflow_budget_seconds=600,
+        lease_seconds=600,
+        max_attempts=3,
+    )
+    for _ in range(5):
+        assert worker_module.process_next_background_job(**arguments) is True
+    assert calls == ["strategy", "sponsor", "contact", "outreach", "follow_up"]
 
 
 def test_idle_logging_is_throttled_to_once_per_60_seconds():

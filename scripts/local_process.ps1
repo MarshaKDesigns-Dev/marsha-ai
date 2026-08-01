@@ -70,9 +70,17 @@ function Test-MarshaLocalProcess {
     )
     $isFlask = (
         ($command.Contains("-m flask") -and $command.Contains("--app app")) -or
-        $command.Contains((Join-Path $root "app.py"))
+        $command.Contains((Join-Path $root "app.py")) -or
+        $command.EndsWith(" app.py")
     )
-    return ($isPython -and $usesRepository -and $isFlask)
+    $isWorker = $command.Contains(
+        "-m services.sponsorship_intelligence_worker"
+    )
+    return (
+        $isPython -and
+        $usesRepository -and
+        ($isFlask -or $isWorker)
+    )
 }
 
 function Write-MarshaListener {
@@ -129,7 +137,7 @@ function Stop-MarshaLocalProcesses {
     if ($remaining) {
         $remainingIds = ($remaining.ProcessId -join ", ")
         throw (
-            "Repository-owned Flask processes did not stop: " +
+            "Repository-owned Marsha AI processes did not stop: " +
             $remainingIds
         )
     }

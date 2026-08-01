@@ -201,7 +201,7 @@ def test_follow_up_test_delivery_redirects_to_configured_test_email(
     assert delivery == {
         "recipient": "pilot-test@example.com",
         "subject": (
-            "[TEST — NOT SENT TO PROSPECT] Sponsorship follow-up"
+                "[TEST — NOT SENT TO SPONSOR] Sponsorship follow-up"
         ),
         "message": "Could we schedule a short conversation?",
         "delivery_mode": "TEST",
@@ -294,7 +294,6 @@ def test_follow_up_template_includes_email_delivery_and_manual_options():
     )
 
     assert "send_follow_up_email" in template_text
-    assert "Send Test Follow-Up Email" in template_text
-    assert "Send Live Follow-Up Email" in template_text
-    assert "I Sent It Another Way" in template_text
+    assert "Send Follow-Up" in template_text
+    assert "Record Follow-Up Sent" in template_text
 

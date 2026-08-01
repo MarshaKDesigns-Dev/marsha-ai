@@ -96,7 +96,9 @@ def test_reviewed_message_requires_approval_before_send_actions():
         )
     )
 
-    assert "Approve Message for Sending" in rendered
+    assert "Approve Outreach" in rendered
+    assert "Outreach Reviewed" in rendered
+    assert "Ready to Send" not in rendered
     assert "/opportunity/16/approve-message" in rendered
     assert "/opportunity/16/send-email" not in rendered
     assert "/opportunity/16/mark-sent" not in rendered
@@ -215,13 +217,13 @@ def test_review_and_reset_clear_prior_approval(monkeypatch):
 
 def test_pipeline_actions_follow_review_and_approval_state():
     cases = (
-        (opportunity(), "Review Message"),
+        (opportunity(), "Review Outreach"),
         (
             opportunity(
                 reviewed_message="Reviewed.",
                 message_reviewed_at=datetime(2026, 7, 29, 12, 0),
             ),
-            "Approve Message",
+            "Approve Outreach",
         ),
         (
             opportunity(
@@ -241,3 +243,18 @@ def test_pipeline_actions_follow_review_and_approval_state():
                 today=None,
             )
             assert label in rendered
+
+
+def test_pipeline_confirms_new_research_results_and_points_to_opportunities():
+    item = opportunity(stage="Research Approved", outreach=None)
+
+    with app_module.app.test_request_context("/pipeline?new_sponsors=1"):
+        rendered = render_template(
+            "pipeline.html",
+            opportunities=[item],
+            today=None,
+        )
+
+    assert "Review Your New Sponsors" in rendered
+    assert "Your selected sponsors have been added to your Sponsor Pipeline." in rendered
+    assert 'href="#active-opportunities"' in rendered

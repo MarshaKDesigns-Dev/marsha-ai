@@ -1,11 +1,164 @@
-{% extends "base.html" %} {% block content %}
+{% extends "base.html" %}
+{% from "_workflow_guidance.html" import workflow_guidance %}
+{% block content %}
 
-<div class="eyebrow">SPONSORSHIP PIPELINE</div>
-<h1>Active Opportunities</h1>
+{% set priority = namespace(opportunity=None, state=None) %}
+{% set new_sponsor_count = request.args.get('new_sponsors', 0)|int %}
+{% for item in opportunities %}
+  {% set item_follow_up_due = (
+    item.stage == 'Sent' and item.follow_up_date and item.follow_up_date <= today
+  ) %}
+  {% if priority.opportunity is none and item.follow_up_generation_job and item.follow_up_generation_job.status in ['queued', 'working'] %}
+    {% set priority.opportunity = item %}
+    {% set priority.state = 'follow_up_working' %}
+  {% elif priority.opportunity is none and item_follow_up_due %}
+    {% set priority.opportunity = item %}
+    {% set priority.state = 'follow_up' %}
+  {% endif %}
+{% endfor %}
+{% if priority.opportunity is none %}
+  {% for item in opportunities %}
+    {% if priority.opportunity is none and item.stage == 'Ready to Send' and item.message_approved_at %}
+      {% set priority.opportunity = item %}
+      {% set priority.state = 'send' %}
+    {% elif priority.opportunity is none and item.stage == 'Ready to Send' and item.message_reviewed_at %}
+      {% set priority.opportunity = item %}
+      {% set priority.state = 'approve' %}
+    {% elif priority.opportunity is none and item.stage == 'Ready to Send' and item.outreach %}
+      {% set priority.opportunity = item %}
+      {% set priority.state = 'review' %}
+    {% elif priority.opportunity is none and item.outreach_generation_job and item.outreach_generation_job.status in ['queued', 'working'] %}
+      {% set priority.opportunity = item %}
+      {% set priority.state = 'outreach_working' %}
+    {% elif priority.opportunity is none and item.stage == 'Research Approved' %}
+      {% set priority.opportunity = item %}
+      {% set priority.state = 'prepare' %}
+    {% endif %}
+  {% endfor %}
+{% endif %}
+{% if priority.opportunity is none and opportunities %}
+  {% set priority.opportunity = opportunities[0] %}
+  {% set priority.state = 'open' %}
+{% endif %}
+
+{% if new_sponsor_count %}
+  {{ workflow_guidance(
+    'Review Your New Sponsors',
+    new_sponsor_count|string ~ ' new sponsor '
+      ~ ('opportunity was' if new_sponsor_count == 1 else 'opportunities were')
+      ~ ' added to your Pipeline.',
+    'Your selected sponsors are ready for review.',
+    'Your selected sponsors have been added to your Sponsor Pipeline.',
+    'Open Sponsor Pipeline',
+    '#active-opportunities',
+    'btn-primary',
+    'success'
+  ) }}
+{% elif not opportunities %}
+  {{ workflow_guidance(
+    'Build your Sponsor Pipeline',
+    'Your Sponsor Pipeline is ready.',
+    'No sponsor opportunities have been saved yet.',
+    'Research qualified sponsors and save the organizations you want to pursue.',
+    'Research Sponsorship Opportunities',
+    url_for('research_worker'),
+    'btn-primary',
+    'info'
+  ) }}
+{% elif priority.state == 'follow_up_working' %}
+  {{ workflow_guidance(
+    'Your Follow-Up Worker is working',
+    'Follow-Up preparation was accepted.',
+    'Marsha AI is preparing the sponsor follow-up.',
+    'Open the Sponsor Opportunity to view progress.',
+    'View Progress', url_for('opportunity_detail', opportunity_id=priority.opportunity.id),
+    'btn-primary', 'info'
+  ) }}
+{% elif priority.state == 'follow_up' %}
+  {{ workflow_guidance(
+    'A sponsor follow-up is due',
+    'Initial outreach was completed for ' ~ priority.opportunity.recommended_target ~ '.',
+    'The scheduled follow-up is now due.',
+    'Open the opportunity and complete the follow-up.',
+    'Open Follow-Up',
+    url_for('opportunity_detail', opportunity_id=priority.opportunity.id),
+    'btn-primary',
+    'warning'
+  ) }}
+{% elif priority.state == 'outreach_working' %}
+  {{ workflow_guidance(
+    'Your Outreach Worker is working',
+    'Sponsor Outreach preparation was accepted.',
+    'Marsha AI is preparing the sponsor-specific message.',
+    'Open the Sponsor Opportunity to view progress.',
+    'View Progress', url_for('opportunity_detail', opportunity_id=priority.opportunity.id),
+    'btn-primary', 'info'
+  ) }}
+{% elif priority.state == 'send' %}
+  {{ workflow_guidance(
+    'Approved outreach is ready',
+    'The outreach for ' ~ priority.opportunity.recommended_target ~ ' passed review and was approved.',
+    'The outreach is ready for delivery through its verified channel.',
+    'Open the Sponsor Opportunity and send the outreach.',
+    'Send Outreach',
+    url_for('opportunity_detail', opportunity_id=priority.opportunity.id),
+    'btn-primary',
+    'success'
+  ) }}
+{% elif priority.state == 'approve' %}
+  {{ workflow_guidance(
+    'Approve Outreach',
+    'Outreach Review is complete for ' ~ priority.opportunity.recommended_target ~ '.',
+    'The reviewed outreach is ready for your decision.',
+    'Review the final outreach and approve it before sending.',
+    'Approve Outreach',
+    url_for('opportunity_detail', opportunity_id=priority.opportunity.id),
+    'btn-primary',
+    'success'
+  ) }}
+{% elif priority.state == 'review' %}
+  {{ workflow_guidance(
+    'Review Outreach',
+    'Personalized outreach was generated for ' ~ priority.opportunity.recommended_target ~ '.',
+    'The draft is waiting for Outreach Review.',
+    'Open the Sponsor Opportunity and review the outreach.',
+    'Review Outreach',
+    url_for('opportunity_detail', opportunity_id=priority.opportunity.id),
+    'btn-primary',
+    'info'
+  ) }}
+{% elif priority.state == 'prepare' %}
+  {{ workflow_guidance(
+    'Generate Outreach',
+    priority.opportunity.recommended_target ~ ' was saved as a Sponsor Opportunity.',
+    'The Sponsor Opportunity is ready for contact confirmation and outreach.',
+    'Open the Sponsor Opportunity and generate outreach.',
+    'Generate Outreach',
+    url_for('opportunity_detail', opportunity_id=priority.opportunity.id),
+    'btn-primary',
+    'info'
+  ) }}
+{% else %}
+  {{ workflow_guidance(
+    'Keep your Sponsor Pipeline moving',
+    (opportunities|length|string) ~ ' active sponsor '
+      ~ ('opportunity is' if opportunities|length == 1 else 'opportunities are')
+      ~ ' saved.',
+    'Marsha AI is tracking outreach stages and follow-up dates.',
+    'Open the most recently updated Sponsor Opportunity and continue its next action.',
+    'Open Sponsor Opportunity',
+    url_for('opportunity_detail', opportunity_id=priority.opportunity.id),
+    'btn-primary',
+    'info'
+  ) }}
+{% endif %}
+
+<div class="eyebrow" id="active-opportunities">SPONSOR PIPELINE</div>
+<h1>Sponsor Opportunities</h1>
 
 {% if not opportunities %}
 <div class="card p-5">
-  <h2>No saved opportunities yet.</h2>
+  <h2>No Sponsor Opportunities yet.</h2>
   <a href="{{ url_for('home') }}">Return to workspace</a>
 </div>
 {% else %}
@@ -15,7 +168,7 @@
       <thead>
         <tr>
           <th>Score</th>
-          <th>Opportunity</th>
+          <th>Sponsor Opportunity</th>
           <th>Sponsorship Asset</th>
           <th>Decision-Maker</th>
           <th>Channel</th>
@@ -36,7 +189,7 @@
 
           <td>
             <strong>{{ opp.recommended_target }}</strong><br />
-            <small>Parent: {{ opp.parent_prospect }}</small>
+            <small>Sponsor Organization: {{ opp.parent_prospect }}</small>
           </td>
           <td>{{ opp.category or 'Not specified' }}</td>
 
@@ -62,7 +215,7 @@
             {% if follow_up_due %}
             <span class="badge text-bg-warning">Follow-Up Due</span>
             {% else %}
-            <span class="badge text-bg-primary">{{ opp.stage }}</span>
+            <span class="badge text-bg-primary">{{ opportunity_stage_label(opp, today=today) }}</span>
             {% endif %}
           </td>
 
@@ -72,7 +225,15 @@
           </td>
 
           <td>
-            {% if opp.stage == 'Research Approved' and
+            {% if opp.follow_up_generation_job and opp.follow_up_generation_job.status in ['queued', 'working'] %}
+            <a class="btn btn-dark btn-sm" href="{{ url_for('opportunity_detail', opportunity_id=opp.id) }}">
+              {{ 'Queued' if opp.follow_up_generation_job.status == 'queued' else 'View Progress' }}
+            </a>
+            {% elif opp.outreach_generation_job and opp.outreach_generation_job.status in ['queued', 'working'] %}
+            <a class="btn btn-dark btn-sm" href="{{ url_for('opportunity_detail', opportunity_id=opp.id) }}">
+              {{ 'Queued' if opp.outreach_generation_job.status == 'queued' else 'View Progress' }}
+            </a>
+            {% elif opp.stage == 'Research Approved' and
             (opp.email or opp.phone or opp.contact_url) and
             not opp.outreach and not opp.reviewed_message %}
             <form
@@ -87,7 +248,7 @@
               class="btn btn-dark btn-sm"
               href="{{ url_for('opportunity_detail', opportunity_id=opp.id) }}"
             >
-              Review Message
+              Review Outreach
             </a>
             {% elif opp.stage == 'Ready to Send' and opp.message_reviewed_at and
             not opp.message_approved_at %}
@@ -95,7 +256,7 @@
               class="btn btn-dark btn-sm"
               href="{{ url_for('opportunity_detail', opportunity_id=opp.id) }}"
             >
-              Approve Message
+              Approve Outreach
             </a>
             {% elif opp.stage == 'Ready to Send' and opp.message_approved_at %}
             <a
@@ -109,7 +270,7 @@
               class="btn btn-dark btn-sm"
               href="{{ url_for('opportunity_detail', opportunity_id=opp.id) }}"
             >
-              {% if follow_up_due %} Open Follow-Up {% else %} Open Opportunity
+              {% if follow_up_due %} Open Follow-Up {% else %} Open Sponsor Opportunity
               {% endif %}
             </a>
             {% endif %}

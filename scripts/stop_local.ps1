@@ -11,12 +11,12 @@ if (-not $listener) {
     $orphaned = @(Get-MarshaLocalProcesses)
     if ($orphaned) {
         Write-Host (
-            "Port 5000 is free, but repository-owned Flask process(es) " +
+            "Port 5000 is free, but repository-owned Marsha AI process(es) " +
             "remain."
         )
         [void](Stop-MarshaLocalProcesses)
     }
-    Write-Host "Port 5000 is free and no Marsha AI Flask processes remain."
+    Write-Host "Port 5000 is free and no Marsha AI processes remain."
     exit 0
 }
 
@@ -34,7 +34,7 @@ if (Get-MarshaPortListener -Port 5000) {
     throw "Port 5000 is still occupied."
 }
 if (@(Get-MarshaLocalProcesses)) {
-    throw "A repository-owned Marsha AI Flask process is still running."
+    throw "A repository-owned Marsha AI process is still running."
 }
 Write-Host (
     "Marsha AI stopped. Port 5000 is free and no repository-owned Flask " +

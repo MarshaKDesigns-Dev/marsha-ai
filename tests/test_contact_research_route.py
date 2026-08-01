@@ -133,4 +133,6 @@ def test_failed_contact_research_job_displays_failed():
             follow_up_review_notes=None,
         )
 
-    assert "Failed" in rendered
+    assert "Needs Attention" in rendered
+    assert "Contact research needs attention" in rendered
+    assert "Retry Contact Research" in rendered

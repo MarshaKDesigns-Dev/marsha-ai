@@ -1,0 +1,48 @@
+{% macro workflow_guidance(
+  title,
+  completed_message,
+  current_message,
+  next_message,
+  primary_action_text=None,
+  primary_action_url=None,
+  primary_action_style='btn-primary',
+  status_type='info',
+  primary_action_method='GET',
+  primary_action_data=None
+) -%}
+<section
+  class="workflow-guidance workflow-guidance-{{ status_type }}"
+  aria-labelledby="workflow-guidance-title"
+>
+  <div class="workflow-guidance-icon" aria-hidden="true">
+    {% if status_type == 'warning' %}!{% elif status_type == 'success' %}✓{% else %}◆{% endif %}
+  </div>
+  <div class="workflow-guidance-content">
+    <p class="workflow-guidance-label">
+      {% if status_type == 'warning' %}NEEDS ATTENTION
+      {% elif primary_action_text %}TOP PRIORITY
+      {% else %}WORK IN PROGRESS{% endif %}
+    </p>
+    <h2 id="workflow-guidance-title">{{ title }}</h2>
+    <p class="workflow-guidance-summary">{{ next_message }}</p>
+    {% if primary_action_text and primary_action_url %}
+    <div class="workflow-guidance-action">
+      {% if primary_action_method == 'POST' %}
+      <form method="post" action="{{ primary_action_url }}">
+        {% for name, value in (primary_action_data or {}).items() %}
+        <input type="hidden" name="{{ name }}" value="{{ value }}">
+        {% endfor %}
+        <button class="btn {{ primary_action_style }} btn-lg" type="submit">
+          {{ primary_action_text }}
+        </button>
+      </form>
+      {% else %}
+      <a class="btn {{ primary_action_style }} btn-lg" href="{{ primary_action_url }}">
+        {{ primary_action_text }}
+      </a>
+      {% endif %}
+    </div>
+    {% endif %}
+  </div>
+</section>
+{%- endmacro %}

@@ -37,6 +37,7 @@
           <span>Menu</span>
         </button>
 
+        {% from "_workflow_navigation.html" import render_workflow_navigation %}
         <nav class="collapse sidebar-navigation" id="sidebarNavigation">
           {% set endpoint = request.endpoint or '' %}
           <a
@@ -47,48 +48,7 @@
             <span class="nav-icon" aria-hidden="true">⌂</span>
             Dashboard
           </a>
-          <a
-            class="sidebar-link {{ 'active' if endpoint == 'setup' else '' }}"
-            href="{{ url_for('setup') }}"
-            {% if endpoint == 'setup' %}aria-current="page"{% endif %}
-          >
-            <span class="nav-icon" aria-hidden="true">▦</span>
-            Organization
-          </a>
-          <a
-            class="sidebar-link {{ 'active' if endpoint == 'strategy_meeting' else '' }}"
-            href="{{ url_for('strategy_meeting') }}"
-            {% if endpoint == 'strategy_meeting' %}aria-current="page"{% endif %}
-          >
-            <span class="nav-icon" aria-hidden="true">◎</span>
-            Strategy
-          </a>
-          <a
-            class="sidebar-link {{ 'active' if endpoint in ['research_worker', 'research_assignment'] else '' }}"
-            href="{{ url_for('research_worker') }}"
-            {% if endpoint in ['research_worker', 'research_assignment'] %}aria-current="page"{% endif %}
-          >
-            <span class="nav-icon" aria-hidden="true">♧</span>
-            Sponsors
-          </a>
-          <span class="sidebar-link disabled" aria-disabled="true">
-            <span class="nav-icon" aria-hidden="true">✉</span>
-            Outreach
-            <small>Coming soon</small>
-          </span>
-          <a
-            class="sidebar-link {{ 'active' if endpoint in ['show_pipeline', 'opportunity_detail'] else '' }}"
-            href="{{ url_for('show_pipeline') }}"
-            {% if endpoint in ['show_pipeline', 'opportunity_detail'] %}aria-current="page"{% endif %}
-          >
-            <span class="nav-icon" aria-hidden="true">▽</span>
-            Pipeline
-          </a>
-          <span class="sidebar-link disabled" aria-disabled="true">
-            <span class="nav-icon" aria-hidden="true">□</span>
-            Messages
-            <small>Coming soon</small>
-          </span>
+          {{ render_workflow_navigation(workflow_navigation, endpoint) }}
           <span class="sidebar-link disabled" aria-disabled="true">
             <span class="nav-icon" aria-hidden="true">▤</span>
             Reports

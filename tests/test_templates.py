@@ -50,16 +50,23 @@ def test_dashboard_template_keeps_worker_and_summary_sections_compact():
         "workspace.html",
     )[0]
 
-    assert "worker.detail_label" in template
-    assert "worker.detail" in template
-    assert "dashboard.top_priority.supporting_line" in template
-    assert "Sponsors Secured" in template
-    assert "organization.updated_at" in template
-    assert "workflow-progress" in template
-    assert "dashboard-grid" in template
+    assert "dashboard.ai_team" in template
+    assert "dashboard.metrics" in template
+    assert "dashboard.needs_attention" in template
+    assert "dashboard.recent_activity" in template
+    assert "dashboard.continue_links" in template
+    assert "dashboard.workflow_progress" in template
+    assert "mission-workflow-progress" in template
+    assert "mission-control" in template
     assert "manual-status-refresh" in template
-    assert "dashboard.next_title" in template
-    assert "dashboard.next_message" in template
+    assert "dashboard.current_stage" in template
+    assert template.count("'btn-primary'") == 1
+    assert "Marsha Shearin" not in template
+    assert "Ms. Full-Figured" not in template
+    assert "message_reviewed" not in template
+    assert "message_approved" not in template
+    assert "dashboard.top_priority.action.label or 'Refresh Status'" in template
+    assert "else url_for('workspace')" in template
 
 
 def test_navigation_marks_unavailable_features_as_coming_soon():
@@ -67,10 +74,16 @@ def test_navigation_marks_unavailable_features_as_coming_soon():
         app.jinja_env,
         "base.html",
     )[0]
+    workflow_navigation = app.jinja_loader.get_source(
+        app.jinja_env,
+        "_workflow_navigation.html",
+    )[0]
 
-    assert template.count("Coming soon") == 4
-    assert "url_for('research_worker')" in template
-    assert 'aria-disabled="true"' in template
+    assert template.count("Coming soon") == 2
+    assert "render_workflow_navigation" in template
+    assert "url_for(item.endpoint)" in workflow_navigation
+    assert 'aria-disabled="true"' in workflow_navigation
+    assert "Locked" in workflow_navigation
     assert "sidebar-toggle" in template
     assert "Powered by Marsha AI" in template
     assert "copy.js" in template
@@ -96,6 +109,42 @@ def test_reusable_copy_component_is_used_by_generated_content_views():
     assert "document.execCommand" in script
     assert "Copied!" in script
     assert "copy_button" in templates
+
+
+def test_workflow_guidance_component_is_shared_by_build_one_pages():
+    macro = app.jinja_loader.get_source(
+        app.jinja_env,
+        "_workflow_guidance.html",
+    )[0]
+    integrated_templates = (
+        "workspace.html",
+        "strategy_work.html",
+        "research_results.html",
+        "pipeline.html",
+        "opportunity.html",
+    )
+
+    assert "TOP PRIORITY" in macro
+    assert "WORK IN PROGRESS" in macro
+    assert "NEEDS ATTENTION" in macro
+    assert "workflow-guidance-summary" in macro
+    assert "✓ Completed" not in macro
+    assert "Next Step" not in macro
+    assert "primary_action_text and primary_action_url" in macro
+    assert "workflow-guidance-{{ status_type }}" in macro
+
+    for template_name in integrated_templates:
+        template = app.jinja_loader.get_source(
+            app.jinja_env,
+            template_name,
+        )[0]
+        assert '"_workflow_guidance.html"' in template
+        assert "workflow_guidance(" in template
+
+    workspace = app.jinja_loader.get_source(
+        app.jinja_env, "workspace.html"
+    )[0]
+    assert "dashboard.top_priority.message" in workspace
 
 
 def test_prospect_review_separates_verified_information_from_assessment():

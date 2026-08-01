@@ -6,7 +6,7 @@ import logging
 import os
 from datetime import date
 from enum import Enum
-from typing import Any
+from typing import Any, Callable
 from urllib.parse import urlsplit, urlunsplit
 
 from flask import current_app, has_app_context
@@ -455,6 +455,32 @@ def collect_web_search_source_urls(response: Any) -> set[str]:
     return _collect_urls(getattr(response, "output", []))
 
 
+def collect_web_search_queries(response: Any) -> list[str]:
+    """Return provider-generated query text from web-search call actions."""
+
+    value = response.model_dump(mode="json") if hasattr(response, "model_dump") else response
+    queries: list[str] = []
+
+    def visit(item: Any, *, in_web_search: bool = False) -> None:
+        if isinstance(item, list):
+            for child in item:
+                visit(child, in_web_search=in_web_search)
+            return
+        if not isinstance(item, dict):
+            return
+        trusted = in_web_search or item.get("type") == "web_search_call"
+        for key, child in item.items():
+            if trusted and key in {"query", "search_query"} and isinstance(child, str):
+                query = child.strip()
+                if query and query not in queries:
+                    queries.append(query)
+            else:
+                visit(child, in_web_search=trusted)
+
+    visit(value)
+    return queries
+
+
 def validate_researched_prospects(
     result: SponsorResearchResult,
     *,
@@ -464,10 +490,11 @@ def validate_researched_prospects(
     initiative: Any | None = None,
     assets: list[Any] | None = None,
     selected_asset: Any | None = None,
+    candidate_diagnostics: list[dict[str, Any]] | None = None,
 ) -> list[SponsorProspectCandidate]:
     """Reject unsupported, excluded, or duplicate prospect candidates."""
 
-    accepted: dict[str, SponsorProspectCandidate] = {}
+    accepted: dict[str, tuple[SponsorProspectCandidate, dict[str, Any]]] = {}
     approved_needs = set(
         build_sponsorship_context(organization, initiative)[
             "structured_needs"
@@ -482,16 +509,27 @@ def validate_researched_prospects(
         and getattr(asset, "approval_status", "Approved") == "Approved"
     }
     for candidate in result.prospects:
+        rejection_codes: list[str] = []
         source_urls = {
             _canonical_url(source.url)
             for source in candidate.evidence_sources
         }
-        if not source_urls or not source_urls.issubset(cited_urls):
-            continue
+        passed_evidence_urls = sorted(source_urls.intersection(cited_urls))
+        failed_evidence_urls = sorted(source_urls.difference(cited_urls))
+        if not source_urls:
+            rejection_codes.append("missing_required_evidence")
+        if failed_evidence_urls:
+            rejection_codes.append("evidence_url_not_in_provider_sources")
 
+        contact_evidence_passed = None
         if candidate.contact and candidate.contact.evidence_url:
-            if _canonical_url(candidate.contact.evidence_url) not in cited_urls:
-                continue
+            contact_evidence_passed = (
+                _canonical_url(candidate.contact.evidence_url) in cited_urls
+            )
+            if not contact_evidence_passed:
+                rejection_codes.append(
+                    "contact_evidence_url_not_in_provider_sources"
+                )
 
         eligibility_decision = evaluate_category_research(
             eligibility,
@@ -505,7 +543,12 @@ def validate_researched_prospects(
             )(),
         )
         if not eligibility_decision.allowed:
-            continue
+            rejection_codes.append("prohibited_industry")
+
+        preference = None
+        approved_need_match = None
+        approved_asset_match = None
+        selected_asset_match = None
 
         if organization is not None and initiative is not None:
             preference = evaluate_sponsor_preference(
@@ -514,26 +557,83 @@ def validate_researched_prospects(
                 initiative,
             )
             if not preference.allowed:
-                continue
-            if (
-                candidate.recommended_need not in approved_needs
-                and candidate.recommended_asset_name not in approved_assets
-            ):
-                continue
+                rejection_codes.append(
+                    {
+                        "current_sponsor": "current_sponsor_exclusion",
+                        "existing_relationship": "existing_relationship_exclusion",
+                        "already_contacted": "already_contacted_exclusion",
+                        "never_contact": "never_contact_exclusion",
+                    }.get(preference.reason_code, "never_contact_exclusion")
+                )
+            approved_need_match = candidate.recommended_need in approved_needs
+            approved_asset_match = (
+                candidate.recommended_asset_name in approved_assets
+            )
+            if not approved_need_match and not approved_asset_match:
+                rejection_codes.extend(
+                    ["approved_need_mismatch", "approved_asset_mismatch"]
+                )
             if (
                 selected_asset is not None
                 and candidate.recommended_asset_name
                 != getattr(selected_asset, "name", None)
             ):
-                continue
+                rejection_codes.append("selected_asset_exact_name_mismatch")
+            selected_asset_match = (
+                selected_asset is None
+                or candidate.recommended_asset_name
+                == getattr(selected_asset, "name", None)
+            )
+
+        diagnostic = {
+            "candidate_name": candidate.company_name,
+            "canonical_website": _canonical_url(candidate.website),
+            "industry": candidate.industry,
+            "result_status": "rejected" if rejection_codes else "accepted",
+            "rejection_codes": list(dict.fromkeys(rejection_codes)),
+            "citation_validation": {
+                "passed_evidence_urls": passed_evidence_urls,
+                "failed_evidence_urls": failed_evidence_urls,
+                "contact_evidence_passed": contact_evidence_passed,
+            },
+            "eligibility_result": {
+                "allowed": eligibility_decision.allowed,
+                "reason_code": eligibility_decision.reason_code,
+            },
+            "preference_result": {
+                "allowed": preference.allowed if preference else True,
+                "reason_code": preference.reason_code if preference else None,
+            },
+            "approved_asset_match": approved_asset_match,
+            "approved_need_match": approved_need_match,
+            "selected_asset_match": selected_asset_match,
+            "deduplication_result": "not_duplicate",
+            "evidence_urls": sorted(source_urls),
+        }
+        if candidate_diagnostics is not None:
+            candidate_diagnostics.append(diagnostic)
+        if rejection_codes:
+            continue
 
         key = _canonical_url(candidate.website)
         existing = accepted.get(key)
-        if existing is None or candidate.ranking_score > existing.ranking_score:
-            accepted[key] = candidate
+        if existing is None:
+            accepted[key] = (candidate, diagnostic)
+        elif candidate.ranking_score > existing[0].ranking_score:
+            prior_diagnostic = existing[1]
+            prior_diagnostic["result_status"] = "rejected"
+            prior_diagnostic["rejection_codes"].append(
+                "duplicate_canonical_website"
+            )
+            prior_diagnostic["deduplication_result"] = "duplicate_removed"
+            accepted[key] = (candidate, diagnostic)
+        else:
+            diagnostic["result_status"] = "rejected"
+            diagnostic["rejection_codes"].append("duplicate_canonical_website")
+            diagnostic["deduplication_result"] = "duplicate_removed"
 
     return sorted(
-        accepted.values(),
+        (item[0] for item in accepted.values()),
         key=lambda item: (-item.ranking_score, item.company_name.lower()),
     )
 
@@ -549,6 +649,7 @@ def research_sponsor_category(
     model: str | None = None,
     selected_asset: Any | None = None,
     prior_results: list[Any] | None = None,
+    diagnostics_sink: Callable[[dict[str, Any]], None] | None = None,
 ) -> list[SponsorProspectCandidate]:
     """Research and validate real prospects using OpenAI web search."""
 
@@ -655,6 +756,22 @@ is calculated by the application, not by the model.
         else logging.getLogger(__name__)
     )
     diagnostics = _response_diagnostics(None)
+    safe_snapshot: dict[str, Any] = {
+        "provider_response_id": None,
+        "outcome_code": None,
+        "search_queries": [],
+        "source_urls": [],
+        "candidate_count": 0,
+        "accepted_count": 0,
+        "rejected_count": 0,
+        "input_tokens": None,
+        "output_tokens": None,
+        "candidates": [],
+    }
+
+    def emit_snapshot() -> None:
+        if diagnostics_sink is not None:
+            diagnostics_sink(safe_snapshot)
 
     def log_invalid_result(
         exception_type: str,
@@ -714,7 +831,15 @@ is calculated by the application, not by the model.
             response,
             http_status=raw_response.status_code,
         )
+        safe_snapshot.update(
+            provider_response_id=diagnostics["response_id"],
+            search_queries=collect_web_search_queries(response),
+            source_urls=sorted(collect_web_search_source_urls(response)),
+            input_tokens=diagnostics["input_tokens"],
+            output_tokens=diagnostics["output_tokens"],
+        )
     except APITimeoutError as exc:
+        emit_snapshot()
         raise SponsorResearchUnavailableError(
             (
                 "Sponsor research took too long to complete. Please try "
@@ -723,33 +848,39 @@ is calculated by the application, not by the model.
             reason_code="openai_timeout",
         ) from exc
     except APIConnectionError as exc:
+        emit_snapshot()
         raise SponsorResearchUnavailableError(
             "Sponsor research could not connect to the research service.",
             reason_code="openai_connection_error",
         ) from exc
     except AuthenticationError as exc:
+        emit_snapshot()
         raise SponsorResearchUnavailableError(
             "Sponsor research is not configured correctly.",
             reason_code="openai_authentication_error",
         ) from exc
     except APIError as exc:
+        emit_snapshot()
         raise SponsorResearchUnavailableError(
             "The sponsor research service is temporarily unavailable.",
             reason_code="openai_api_error",
         ) from exc
     except Exception as exc:
         log_invalid_result(type(exc).__name__)
+        emit_snapshot()
         raise SponsorResearchError(
             "Sponsor research returned an invalid result."
         ) from exc
 
     if diagnostics["response_status"] != "completed":
         log_invalid_result("IncompleteProviderResponse")
+        emit_snapshot()
         raise SponsorResearchError(
             "Sponsor research returned an invalid result."
         )
     if diagnostics["refusal_present"]:
         log_invalid_result("ProviderRefusal")
+        emit_snapshot()
         raise SponsorResearchError(
             "Sponsor research returned an invalid result."
         )
@@ -757,6 +888,7 @@ is calculated by the application, not by the model.
     output_text = _response_output_text(response)
     if not output_text:
         log_invalid_result("MissingOutputText")
+        emit_snapshot()
         raise SponsorResearchError(
             "Sponsor research returned an invalid result."
         )
@@ -777,13 +909,18 @@ is calculated by the application, not by the model.
             )
         ]
         log_invalid_result(type(exc).__name__, validation_errors)
+        safe_snapshot["outcome_code"] = "invalid_structured_candidate"
+        emit_snapshot()
         raise SponsorResearchError(
             "Sponsor research returned an invalid result."
         ) from exc
 
     parsed_prospect_count = len(parsed.prospects)
     cited_urls = collect_web_search_source_urls(response)
+    safe_snapshot["candidate_count"] = parsed_prospect_count
     if parsed_prospect_count == 0:
+        safe_snapshot["outcome_code"] = "no_candidates_returned"
+        emit_snapshot()
         raise NoCredibleProspectsError(
             (
                 "The research service found no companies with enough "
@@ -793,6 +930,31 @@ is calculated by the application, not by the model.
             reason_code="no_candidates_returned",
         )
     if not cited_urls:
+        safe_snapshot["outcome_code"] = "web_evidence_not_returned"
+        safe_snapshot["candidates"] = [
+            {
+                "candidate_name": candidate.company_name,
+                "canonical_website": _canonical_url(candidate.website),
+                "industry": candidate.industry,
+                "result_status": "rejected",
+                "rejection_codes": ["evidence_url_not_in_provider_sources"],
+                "citation_validation": {
+                    "passed_evidence_urls": [],
+                    "failed_evidence_urls": sorted(
+                        _canonical_url(source.url)
+                        for source in candidate.evidence_sources
+                    ),
+                },
+                "deduplication_result": "not_duplicate",
+                "evidence_urls": sorted(
+                    _canonical_url(source.url)
+                    for source in candidate.evidence_sources
+                ),
+            }
+            for candidate in parsed.prospects
+        ]
+        safe_snapshot["rejected_count"] = parsed_prospect_count
+        emit_snapshot()
         raise NoCredibleProspectsError(
             (
                 "The research service returned potential companies, but "
@@ -802,6 +964,7 @@ is calculated by the application, not by the model.
             reason_code="web_evidence_not_returned",
         )
 
+    candidate_diagnostics: list[dict[str, Any]] = []
     prospects = validate_researched_prospects(
         parsed,
         cited_urls=cited_urls,
@@ -810,7 +973,19 @@ is calculated by the application, not by the model.
         initiative=initiative,
         assets=research_assets,
         selected_asset=selected_asset,
+        candidate_diagnostics=candidate_diagnostics,
     )
+    safe_snapshot["candidates"] = candidate_diagnostics
+    safe_snapshot["accepted_count"] = sum(
+        item["result_status"] == "accepted" for item in candidate_diagnostics
+    )
+    safe_snapshot["rejected_count"] = sum(
+        item["result_status"] == "rejected" for item in candidate_diagnostics
+    )
+    safe_snapshot["outcome_code"] = (
+        "candidates_failed_validation" if not prospects else "completed"
+    )
+    emit_snapshot()
     if not prospects:
         raise NoCredibleProspectsError(
             (
@@ -832,6 +1007,7 @@ def research_sponsorship_asset(
     prior_results: list[Any] | None = None,
     client: OpenAI | None = None,
     model: str | None = None,
+    diagnostics_sink: Callable[[dict[str, Any]], None] | None = None,
 ) -> list[SponsorProspectCandidate]:
     """Research exactly one approved sponsorship asset."""
 
@@ -860,4 +1036,5 @@ def research_sponsorship_asset(
         model=model,
         selected_asset=asset,
         prior_results=prior_results,
+        diagnostics_sink=diagnostics_sink,
     )

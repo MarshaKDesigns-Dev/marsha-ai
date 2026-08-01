@@ -34,7 +34,7 @@ if ($existing) {
 else {
     $orphaned = @(Get-MarshaLocalProcesses)
     if ($orphaned) {
-        Write-Host "Stopping orphaned Marsha AI Flask process(es)."
+        Write-Host "Stopping orphaned Marsha AI process(es)."
         [void](Stop-MarshaLocalProcesses)
     }
 }
@@ -95,6 +95,49 @@ if ($listener.StartTime -lt $startedAt.AddSeconds(-2)) {
 
 Write-Host "Marsha AI local server started successfully."
 Write-MarshaListener -Listener $listener
+
+$workerStdoutLog = Join-Path $logs "strategy-worker-stdout.log"
+$workerStderrLog = Join-Path $logs "strategy-worker-stderr.log"
+$workerLauncherScript = Join-Path $logs "start-strategy-worker.cmd"
+$workerCommand = (
+    "`"$python`" -m services.sponsorship_intelligence_worker " +
+    "1>>`"$workerStdoutLog`" 2>>`"$workerStderrLog`""
+)
+@(
+    "@echo off"
+    "cd /d `"$root`""
+    $workerCommand
+) | Set-Content -LiteralPath $workerLauncherScript -Encoding ASCII
+$workerStartInfo = [System.Diagnostics.ProcessStartInfo]::new()
+$workerStartInfo.FileName = $env:ComSpec
+$workerStartInfo.Arguments = "/d /c call `"$workerLauncherScript`""
+$workerStartInfo.WorkingDirectory = $root
+$workerStartInfo.UseShellExecute = $false
+$workerStartInfo.CreateNoWindow = $true
+$workerStartInfo.WindowStyle = [System.Diagnostics.ProcessWindowStyle]::Hidden
+$workerLauncher = [System.Diagnostics.Process]::Start($workerStartInfo)
+
+$workerDeadline = (Get-Date).AddSeconds(10)
+do {
+    Start-Sleep -Milliseconds 250
+    $worker = @(
+        Get-MarshaLocalProcesses |
+        Where-Object {
+            $_.CommandLine -match "services\.sponsorship_intelligence_worker"
+        }
+    ) | Select-Object -First 1
+} while (-not $worker -and (Get-Date) -lt $workerDeadline)
+
+if (-not $worker) {
+    Stop-Process -Id $workerLauncher.Id -ErrorAction SilentlyContinue
+    [void](Stop-MarshaLocalProcesses)
+    throw "The sponsorship intelligence worker did not start within 10 seconds."
+}
+
+Write-Host "Sponsorship intelligence worker started successfully."
+Write-Host "Worker PID: $($worker.ProcessId)"
 Write-Host "Local URL: http://127.0.0.1:5000"
 Write-Host "Flask standard output log: $stdoutLog"
 Write-Host "Flask standard error log: $stderrLog"
+Write-Host "Strategy worker output log: $workerStdoutLog"
+Write-Host "Strategy worker error log: $workerStderrLog"

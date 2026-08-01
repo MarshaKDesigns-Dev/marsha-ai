@@ -1,220 +1,203 @@
 {% extends "base.html" %}
-
-{% macro dashboard_action(action, style='btn-primary') %}
-  {% if action and action.endpoint %}
-    {% if action.method == 'POST' %}
-    <form method="post" action="{{ url_for(action.endpoint, **action.route_params) }}">
-      {% for name, value in action.form_data.items() %}
-      <input type="hidden" name="{{ name }}" value="{{ value }}">
-      {% endfor %}
-      <button class="btn {{ style }}" type="submit">{{ action.label }}</button>
-    </form>
-    {% else %}
-    <a class="btn {{ style }}" href="{{ url_for(action.endpoint, **action.route_params) }}">
-      {{ action.label }}
-    </a>
-    {% endif %}
-  {% endif %}
-{% endmacro %}
+{% from "_workflow_guidance.html" import workflow_guidance %}
 
 {% block title %}Dashboard · Marsha AI Sponsorship Coordinator{% endblock %}
 
 {% block content %}
 <div
-  class="dashboard-page"
+  class="dashboard-page mission-control"
   data-job-status="{{ dashboard.job_status }}"
   data-status-url="{{ url_for('workspace_status') }}"
 >
-  <header class="dashboard-header">
+  <header class="dashboard-header mission-header">
     <div>
-      <p class="dashboard-kicker">MARSHA AI OFFICE</p>
-      <h1>{{ dashboard.greeting }} <span aria-hidden="true">👋</span></h1>
-      <p>Your AI team keeps the sponsorship workflow moving and shows you exactly what comes next.</p>
+      <p class="dashboard-kicker">SPONSORSHIP COORDINATOR</p>
+      <h1>{{ organization.name }}</h1>
+      <p>
+        Active initiative: <strong>{{ initiative.name }}</strong>
+        <span class="context-divider" aria-hidden="true">·</span>
+        Current stage: <strong>{{ dashboard.current_stage }}</strong>
+      </p>
+      {% if initiative.goals or initiative.sponsorship_goals %}
+      <p class="initiative-context">
+        {{ initiative.goals or initiative.sponsorship_goals }}
+      </p>
+      {% endif %}
     </div>
-    <div class="initiative-chip">
-      <span>Active initiative</span>
-      <strong>{{ initiative.name }}</strong>
-    </div>
+    <a class="quiet-link" href="{{ url_for('setup') }}">Organization Setup</a>
   </header>
 
-  <div class="dashboard-grid">
-    <div class="dashboard-main-column">
-      <section
-        class="dashboard-card priority-card priority-{{ dashboard.top_priority.level }}"
-        aria-labelledby="priority-heading"
-        id="dashboard-priority"
-      >
-        <div
-          class="priority-icon priority-icon-{{ dashboard.top_priority.worker_icon }}"
-          aria-hidden="true"
-        >
-          {% if dashboard.top_priority.worker_icon == 'organization' %}⌂
-          {% elif dashboard.top_priority.worker_icon == 'strategy' %}◎
-          {% elif dashboard.top_priority.worker_icon == 'research' %}⌕
-          {% elif dashboard.top_priority.worker_icon == 'outreach' %}✉
-          {% else %}▽{% endif %}
-        </div>
-        <div class="priority-copy">
-          <p class="dashboard-kicker">
-            {{ dashboard.top_priority.worker_name }} ·
-            {{ dashboard.top_priority.status }}
-          </p>
-          <h2 id="priority-heading">{{ dashboard.top_priority.title }}</h2>
-          <p>{{ dashboard.top_priority.message }}</p>
-          {% if dashboard.top_priority.supporting_line %}
-          <p class="supporting-line">{{ dashboard.top_priority.supporting_line }}</p>
-          {% endif %}
-          <div class="priority-actions">
-            {{ dashboard_action(dashboard.top_priority.action, 'btn-primary btn-lg') }}
-            <button class="btn btn-link" id="manual-status-refresh" type="button">
-              Refresh status
-            </button>
-          </div>
-          {% if dashboard.job_status in ['pending', 'processing'] %}
-          <p class="live-status" id="dashboard-live-status" role="status" aria-live="polite">
-            <span class="status-spinner" aria-hidden="true"></span>
-            Your Strategy Worker is processing this initiative.
-          </p>
-          {% else %}
-          <p class="live-status visually-hidden" id="dashboard-live-status" role="status" aria-live="polite"></p>
-          {% endif %}
-        </div>
-      </section>
-
-      <section class="dashboard-card progress-card" aria-labelledby="progress-heading">
-        <div class="section-heading">
-          <div>
-            <p class="dashboard-kicker">WORKFLOW · YOUR PROGRESS</p>
-            <h2 id="progress-heading">Sponsorship workflow</h2>
-          </div>
-        </div>
-        <ol class="workflow-progress">
-          {% for step in dashboard.progress %}
-          <li class="progress-step status-{{ step.status|lower|replace(' ', '-') }}">
-            <span class="progress-marker" aria-hidden="true">
-              {% if step.status == 'Complete' %}✓{% else %}{{ loop.index }}{% endif %}
-            </span>
-            <span class="progress-label">{{ step.label }}</span>
-            <strong>{{ step.status }}</strong>
-          </li>
-          {% endfor %}
-        </ol>
-      </section>
-
-      <div class="dashboard-lower-grid">
-        <section class="dashboard-card next-card" aria-labelledby="next-heading">
-          <p class="dashboard-kicker">WHAT’S NEXT</p>
-          <h2 id="next-heading">{{ dashboard.next_title }}</h2>
-          <p>{{ dashboard.next_message }}</p>
-          {% if dashboard.prospect_count %}
-          <p class="count-highlight">{{ dashboard.prospect_count }} sponsor prospects ready</p>
-          {% elif dashboard.approved_asset_count %}
-          <p class="count-highlight">{{ dashboard.approved_asset_count }} sponsorship assets approved</p>
-          {% endif %}
-        </section>
-
-        <section class="dashboard-card initiative-card" aria-labelledby="initiative-heading">
-          <p class="dashboard-kicker">ACTIVE INITIATIVE</p>
-          <h2 id="initiative-heading">{{ initiative.name }}</h2>
-          <p class="organization-name">{{ organization.name }}</p>
-          <dl class="initiative-metrics">
-            <div>
-              <dt>Funding goal</dt>
-              <dd>{{ initiative.fundraising_target or 'Not set' }}</dd>
-            </div>
-            <div>
-              <dt>Deadline</dt>
-              <dd>{{ initiative.deadline or 'Not set' }}</dd>
-            </div>
-            <div>
-              <dt>Days remaining</dt>
-              <dd>
-                {% if dashboard.days_remaining is none %}Not set
-                {% elif dashboard.days_remaining < 0 %}Past due
-                {% else %}{{ dashboard.days_remaining }}{% endif %}
-              </dd>
-            </div>
-            <div>
-              <dt>Active pipeline</dt>
-              <dd>{{ dashboard.pipeline_count }}</dd>
-            </div>
-            <div>
-              <dt>Sponsors Secured</dt>
-              <dd>{{ dashboard.sponsors_secured }}</dd>
-            </div>
-          </dl>
-          <a class="btn btn-outline-light w-100" href="{{ url_for('setup') }}">View initiative</a>
-        </section>
-      </div>
-
-      <section class="dashboard-card organization-summary" aria-labelledby="setup-summary-heading">
-        <div>
-          <p class="dashboard-kicker">ORGANIZATION</p>
-          <h2 id="setup-summary-heading">{{ organization.name }}</h2>
-          <p>
-            {{ organization.organization_type or 'Organization type not set' }}
-            {% if organization.location %} · {{ organization.location }}{% endif %}
-            {% if organization.updated_at %}
-            · Updated {{ organization.updated_at.strftime('%b %d, %Y') }}
-            {% endif %}
-          </p>
-        </div>
-        <a class="btn btn-outline-light" href="{{ url_for('setup') }}">Edit setup</a>
-      </section>
+  {% set completed = namespace(label='Your workspace is ready.') %}
+  {% for step in dashboard.workflow_progress %}
+    {% if step.state == 'complete' %}
+      {% set completed.label = step.label ~ ' is complete.' %}
+    {% endif %}
+  {% endfor %}
+  <section class="mission-priority" aria-label="Top Priority">
+    <div data-worker-icon="{{ dashboard.top_priority.worker_icon }}">
+    {{ workflow_guidance(
+      dashboard.top_priority.title,
+      completed.label,
+      dashboard.top_priority.worker_name ~ ': '
+        ~ dashboard.top_priority.message
+        ~ (
+          ' ' ~ dashboard.top_priority.supporting_line
+          if dashboard.top_priority.supporting_line else ''
+        ),
+      dashboard.top_priority.message
+        ~ (
+          ' ' ~ dashboard.top_priority.supporting_line
+          if dashboard.top_priority.supporting_line else ''
+        ),
+      dashboard.top_priority.action.label or 'Refresh Status',
+      url_for(
+        dashboard.top_priority.action.endpoint,
+        **dashboard.top_priority.action.route_params
+      ) if dashboard.top_priority.action.endpoint else url_for('workspace'),
+      'btn-primary',
+      'warning' if dashboard.top_priority.level == 'warning'
+        else 'info' if dashboard.top_priority.status == 'Working'
+        else 'success',
+      dashboard.top_priority.action.method,
+      dashboard.top_priority.action.form_data
+    ) }}
     </div>
+  </section>
 
-    <aside class="dashboard-side-column" aria-label="Team and activity">
-      <section class="dashboard-card team-card" aria-labelledby="team-heading">
-        <p class="dashboard-kicker">AI OFFICE</p>
-        <h2 id="team-heading">Your Team’s Status</h2>
-        <div class="worker-list">
-          {% for worker in dashboard.workers %}
-          <article class="worker-row">
-            <span class="worker-icon worker-{{ loop.index }}" aria-hidden="true">
-              {% if loop.index == 1 %}◎{% elif loop.index == 2 %}⌕{% elif loop.index == 3 %}✉{% else %}▥{% endif %}
-            </span>
-            <div>
-              <h3>{{ worker.name }}</h3>
-              <span class="worker-status">{{ worker.status }}</span>
-              <p>{{ worker.message }}</p>
-              {% if worker.detail %}
-              <small>{{ worker.detail_label }}: {{ worker.detail }}</small>
-              {% endif %}
-              {{ dashboard_action(worker.action, 'btn-sm btn-outline-light mt-2') }}
-            </div>
-          </article>
-          {% endfor %}
-        </div>
-      </section>
-
-      <section class="dashboard-card activity-card" aria-labelledby="activity-heading">
-        <div class="section-heading">
-          <div>
-            <p class="dashboard-kicker">RECENT ACTIVITY</p>
-            <h2 id="activity-heading">What your team completed</h2>
-          </div>
-          <a href="{{ url_for('show_pipeline') }}">View pipeline</a>
-        </div>
-        {% if dashboard.recent_activity %}
-        <ul class="activity-list">
-          {% for item in dashboard.recent_activity %}
-          <li>
-            <span class="activity-marker" aria-hidden="true">✓</span>
-            <div>
-              <p>{{ item.message }}</p>
-              <time datetime="{{ item.occurred_at.isoformat() }}">
-                {{ item.occurred_at.strftime('%b %d, %Y') }}
-              </time>
-            </div>
-          </li>
-          {% endfor %}
-        </ul>
-        {% else %}
-        <p class="empty-copy">Activity will appear here as your AI team completes work.</p>
-        {% endif %}
-      </section>
-    </aside>
+  <div class="{% if dashboard.job_status not in ['pending', 'processing'] %}visually-hidden{% endif %}">
+    <button class="btn btn-link" id="manual-status-refresh" type="button">
+      Refresh status
+    </button>
+    <p
+      class="live-status {% if dashboard.job_status not in ['pending', 'processing'] %}visually-hidden{% endif %}"
+      id="dashboard-live-status"
+      role="status"
+      aria-live="polite"
+    >
+      {% if dashboard.job_status in ['pending', 'processing'] %}
+      <span class="status-spinner" aria-hidden="true"></span>
+      Your Strategy Worker is processing this initiative.
+      {% endif %}
+    </p>
   </div>
+
+  <section class="dashboard-card mission-section" aria-labelledby="workflow-heading">
+    <div class="section-heading">
+      <div>
+        <p class="dashboard-kicker">WORKFLOW PROGRESS</p>
+        <h2 id="workflow-heading">Your sponsorship workflow</h2>
+      </div>
+    </div>
+    <ol class="mission-workflow-progress">
+      {% for step in dashboard.workflow_progress %}
+      <li class="mission-progress-step state-{{ step.state }}">
+        <span class="progress-marker" aria-hidden="true">
+          {{ '✓' if step.state == 'complete' else loop.index }}
+        </span>
+        <span>
+          <strong>{{ step.label }}</strong>
+          <small>{{ step.state|title }}</small>
+        </span>
+      </li>
+      {% endfor %}
+    </ol>
+  </section>
+
+  {% if dashboard.ai_team %}
+  <section class="dashboard-card mission-section" aria-labelledby="team-heading">
+    <p class="dashboard-kicker">AI TEAM</p>
+    <h2 id="team-heading">What Marsha AI is doing</h2>
+    <div class="mission-worker-grid">
+      {% for worker in dashboard.ai_team %}
+      <article class="mission-worker status-{{ worker.status|lower|replace(' ', '-') }}">
+        <div class="worker-heading">
+          <h3>{{ worker.name }}</h3>
+          <span>{{ worker.status }}</span>
+        </div>
+        <p>{{ worker.message }}</p>
+      </article>
+      {% endfor %}
+    </div>
+  </section>
+  {% endif %}
+
+  {% if dashboard.metrics %}
+  <section class="dashboard-card mission-section" aria-labelledby="snapshot-heading">
+    <p class="dashboard-kicker">SPONSORSHIP SNAPSHOT</p>
+    <h2 id="snapshot-heading">Current initiative</h2>
+    <dl class="mission-metrics">
+      {% for metric in dashboard.metrics %}
+      <div>
+        <dt>{{ metric.label }}</dt>
+        <dd>{{ metric.value }}</dd>
+      </div>
+      {% endfor %}
+    </dl>
+  </section>
+  {% endif %}
+
+  <div class="mission-detail-grid">
+    {% if dashboard.needs_attention %}
+    <section class="dashboard-card mission-section attention-section" aria-labelledby="attention-heading">
+      <p class="dashboard-kicker">NEEDS ATTENTION</p>
+      <h2 id="attention-heading">Waiting for you</h2>
+      <ul class="mission-list">
+        {% for item in dashboard.needs_attention %}
+        <li>
+          <span class="attention-marker" aria-hidden="true">!</span>
+          <div>
+            <strong>{{ item.title }}</strong>
+            <p>{{ item.context }}</p>
+          </div>
+          {% if item.action.method == 'POST' %}
+          <form method="post" action="{{ url_for(item.action.endpoint, **item.action.route_params) }}">
+            <button class="quiet-action" type="submit">{{ item.action.label }}</button>
+          </form>
+          {% else %}
+          <a class="quiet-action" href="{{ url_for(item.action.endpoint, **item.action.route_params) }}">
+            {{ item.action.label }}
+          </a>
+          {% endif %}
+        </li>
+        {% endfor %}
+      </ul>
+    </section>
+    {% endif %}
+
+    {% if dashboard.recent_activity %}
+    <section class="dashboard-card mission-section" aria-labelledby="activity-heading">
+      <p class="dashboard-kicker">RECENT ACTIVITY</p>
+      <h2 id="activity-heading">Recently completed</h2>
+      <ul class="mission-list activity-list">
+        {% for item in dashboard.recent_activity %}
+        <li>
+          <span class="activity-marker" aria-hidden="true">✓</span>
+          <div>
+            <strong>{{ item.message }}</strong>
+            <time datetime="{{ item.occurred_at.isoformat() }}">
+              {{ item.occurred_at.strftime('%b %d, %Y · %I:%M %p') }}
+            </time>
+          </div>
+        </li>
+        {% endfor %}
+      </ul>
+    </section>
+    {% endif %}
+  </div>
+
+  {% if dashboard.continue_links %}
+  <section class="continue-working" aria-labelledby="continue-heading">
+    <div>
+      <p class="dashboard-kicker">CONTINUE WORKING</p>
+      <h2 id="continue-heading">Revisit your workflow</h2>
+    </div>
+    <div class="continue-links">
+      {% for link in dashboard.continue_links %}
+      <a href="{{ url_for(link.endpoint) }}">{{ link.label }}</a>
+      {% endfor %}
+    </div>
+  </section>
+  {% endif %}
 </div>
 {% endblock %}
 
@@ -223,13 +206,11 @@
 (() => {
   const page = document.querySelector(".dashboard-page");
   if (!page) return;
-
   const statusUrl = page.dataset.statusUrl;
   const activeStatuses = new Set(["pending", "processing"]);
   const liveStatus = document.querySelector("#dashboard-live-status");
   const refreshButton = document.querySelector("#manual-status-refresh");
   let timer = null;
-
   const refreshDashboard = () => window.location.assign(window.location.pathname);
 
   async function checkStatus() {
@@ -260,7 +241,7 @@
     }
   }
 
-  refreshButton.addEventListener("click", checkStatus);
+  if (refreshButton) refreshButton.addEventListener("click", checkStatus);
   if (activeStatuses.has(page.dataset.jobStatus)) {
     timer = window.setInterval(checkStatus, 5000);
   }

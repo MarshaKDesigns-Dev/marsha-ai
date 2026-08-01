@@ -1,11 +1,10 @@
 
 
 import os, json, smtplib, sys
-from types import SimpleNamespace
 from email.message import EmailMessage
 from datetime import UTC, date, datetime, timedelta
 from time import monotonic
-from flask import jsonify, render_template, request, redirect, url_for, flash, session
+from flask import g, jsonify, render_template, request, redirect, url_for, flash, session
 from openai import OpenAI
 from application import app
 from extensions import db
@@ -29,6 +28,14 @@ from services.sponsorship_context import (
     parse_multiline,
     validate_needs,
 )
+from services.workflow_labels import opportunity_stage_label, workflow_label
+from services.workflow_navigation import (
+    build_opportunity_progress,
+    build_primary_navigation,
+)
+
+app.jinja_env.filters["workflow_label"] = workflow_label
+app.jinja_env.globals["opportunity_stage_label"] = opportunity_stage_label
 
 if __name__ == "__main__":
     sys.modules.setdefault("app", sys.modules[__name__])
@@ -729,7 +736,7 @@ class SponsorshipAsset(db.Model):
 
 
 class ResearchAssignment(db.Model):
-    """One synchronous Research Worker run for one approved asset."""
+    """One durable Research Worker run for one approved asset."""
 
     id = db.Column(db.Integer, primary_key=True)
     organization_id = db.Column(
@@ -748,6 +755,15 @@ class ResearchAssignment(db.Model):
         nullable=False,
     )
     status = db.Column(db.String(30), nullable=False, default="ready")
+    active_key = db.Column(db.String(255), nullable=True, unique=True)
+    worker_id = db.Column(db.String(255))
+    lease_expires_at = db.Column(db.DateTime)
+    available_at = db.Column(
+        db.DateTime,
+        nullable=False,
+        default=datetime.utcnow,
+    )
+    attempt_count = db.Column(db.Integer, nullable=False, default=0)
     started_at = db.Column(db.DateTime)
     completed_at = db.Column(db.DateTime)
     result_count = db.Column(db.Integer, nullable=False, default=0)
@@ -772,6 +788,12 @@ class ResearchAssignment(db.Model):
             "sponsorship_asset_id",
             "created_at",
         ),
+        db.Index(
+            "ix_research_assignment_claim",
+            "status",
+            "available_at",
+            "lease_expires_at",
+        ),
     )
 
     @property
@@ -781,6 +803,109 @@ class ResearchAssignment(db.Model):
             return result if isinstance(result, list) else []
         except (TypeError, ValueError):
             return []
+
+
+class SponsorResearchDiagnostic(db.Model):
+    """Safe attempt-level audit metadata for Sponsor Research."""
+
+    id = db.Column(db.Integer, primary_key=True)
+    research_assignment_id = db.Column(
+        db.Integer, db.ForeignKey("research_assignment.id"), nullable=False
+    )
+    organization_id = db.Column(
+        db.Integer, db.ForeignKey("organization.id"), nullable=False
+    )
+    initiative_id = db.Column(
+        db.Integer, db.ForeignKey("sponsorship_initiative.id"), nullable=False
+    )
+    sponsorship_asset_id = db.Column(
+        db.Integer, db.ForeignKey("sponsorship_asset.id"), nullable=False
+    )
+    provider_response_id = db.Column(db.String(255))
+    outcome_code = db.Column(db.String(100))
+    search_queries_json = db.Column(db.Text, nullable=False, default="[]")
+    source_urls_json = db.Column(db.Text, nullable=False, default="[]")
+    candidate_count = db.Column(db.Integer, nullable=False, default=0)
+    accepted_count = db.Column(db.Integer, nullable=False, default=0)
+    rejected_count = db.Column(db.Integer, nullable=False, default=0)
+    input_tokens = db.Column(db.Integer)
+    output_tokens = db.Column(db.Integer)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+
+    __table_args__ = (
+        db.Index(
+            "ix_sponsor_research_diagnostic_assignment_history",
+            "research_assignment_id",
+            "created_at",
+        ),
+    )
+
+
+class SponsorResearchCandidateDiagnostic(db.Model):
+    """Safe per-candidate Sponsor Research validation decisions."""
+
+    id = db.Column(db.Integer, primary_key=True)
+    diagnostic_id = db.Column(
+        db.Integer,
+        db.ForeignKey("sponsor_research_diagnostic.id"),
+        nullable=False,
+    )
+    candidate_name = db.Column(db.String(300), nullable=False)
+    canonical_website = db.Column(db.Text)
+    industry = db.Column(db.String(200))
+    result_status = db.Column(db.String(20), nullable=False)
+    rejection_codes_json = db.Column(db.Text, nullable=False, default="[]")
+    citation_validation_json = db.Column(db.Text, nullable=False, default="{}")
+    eligibility_result_json = db.Column(db.Text, nullable=False, default="{}")
+    preference_result_json = db.Column(db.Text, nullable=False, default="{}")
+    approved_asset_match = db.Column(db.Boolean)
+    approved_need_match = db.Column(db.Boolean)
+    deduplication_result = db.Column(db.String(30), nullable=False)
+    evidence_urls_json = db.Column(db.Text, nullable=False, default="[]")
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+
+    __table_args__ = (
+        db.CheckConstraint(
+            "result_status IN ('accepted', 'rejected')",
+            name="ck_sponsor_research_candidate_diagnostic_status",
+        ),
+        db.Index(
+            "ix_sponsor_research_candidate_diagnostic_history",
+            "diagnostic_id",
+            "result_status",
+        ),
+    )
+
+
+class ResearchAssignmentSelection(db.Model):
+    """Persisted link between one reviewed result and its Pipeline record."""
+
+    id = db.Column(db.Integer, primary_key=True)
+    research_assignment_id = db.Column(
+        db.Integer, db.ForeignKey("research_assignment.id"), nullable=False
+    )
+    sponsor_prospect_id = db.Column(
+        db.Integer, db.ForeignKey("sponsor_prospect.id"), nullable=False
+    )
+    opportunity_id = db.Column(
+        db.Integer, db.ForeignKey("opportunity.id"), nullable=False
+    )
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+
+    __table_args__ = (
+        db.UniqueConstraint(
+            "research_assignment_id", "sponsor_prospect_id",
+            name="uq_research_assignment_selection_assignment_prospect",
+        ),
+        db.Index(
+            "ix_research_assignment_selection_assignment_history",
+            "research_assignment_id", "created_at",
+        ),
+        db.Index(
+            "ix_research_assignment_selection_prospect",
+            "sponsor_prospect_id",
+        ),
+    )
 
 
 class ResearchRecord(db.Model):
@@ -912,22 +1037,71 @@ class ContactResearchJob(db.Model):
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
     started_at = db.Column(db.DateTime)
     completed_at = db.Column(db.DateTime)
-
-    opportunity = db.relationship(
-        "Opportunity",
-        back_populates="contact_research_jobs",
-    )
-
+    opportunity = db.relationship("Opportunity", back_populates="contact_research_jobs")
     __table_args__ = (
         db.CheckConstraint(
             "status IN ('queued', 'processing', 'completed', 'failed')",
             name="ck_contact_research_job_status",
         ),
-        db.Index(
-            "ix_contact_research_job_opportunity_created",
-            "opportunity_id",
-            "created_at",
+        db.Index("ix_contact_research_job_opportunity_created", "opportunity_id", "created_at"),
+    )
+
+
+class OutreachGenerationJob(db.Model):
+    """Durable Outreach Worker generation attempt for one Opportunity."""
+
+    id = db.Column(db.Integer, primary_key=True)
+    opportunity_id = db.Column(db.Integer, db.ForeignKey("opportunity.id"), nullable=False)
+    organization_id = db.Column(db.Integer, db.ForeignKey("organization.id"), nullable=False)
+    initiative_id = db.Column(db.Integer, db.ForeignKey("sponsorship_initiative.id"), nullable=False)
+    status = db.Column(db.String(20), nullable=False, default="queued")
+    active_key = db.Column(db.String(255), nullable=True, unique=True)
+    worker_id = db.Column(db.String(255))
+    lease_expires_at = db.Column(db.DateTime)
+    available_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+    attempt_count = db.Column(db.Integer, nullable=False, default=0)
+    created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+    started_at = db.Column(db.DateTime)
+    completed_at = db.Column(db.DateTime)
+    error_message = db.Column(db.Text)
+    provider_response_id = db.Column(db.String(255))
+    input_tokens = db.Column(db.Integer)
+    output_tokens = db.Column(db.Integer)
+
+    __table_args__ = (
+        db.CheckConstraint(
+            "status IN ('queued', 'working', 'completed', 'failed')",
+            name="ck_outreach_generation_job_status",
         ),
+        db.Index("ix_outreach_generation_claim", "status", "available_at", "lease_expires_at"),
+        db.Index("ix_outreach_generation_history", "opportunity_id", "created_at"),
+    )
+
+
+class FollowUpGenerationJob(db.Model):
+    """Durable Follow-Up Worker generation attempt for one Opportunity."""
+
+    id = db.Column(db.Integer, primary_key=True)
+    opportunity_id = db.Column(db.Integer, db.ForeignKey("opportunity.id"), nullable=False)
+    organization_id = db.Column(db.Integer, db.ForeignKey("organization.id"), nullable=False)
+    initiative_id = db.Column(db.Integer, db.ForeignKey("sponsorship_initiative.id"), nullable=False)
+    status = db.Column(db.String(20), nullable=False, default="queued")
+    active_key = db.Column(db.String(255), nullable=True, unique=True)
+    worker_id = db.Column(db.String(255))
+    lease_expires_at = db.Column(db.DateTime)
+    available_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+    attempt_count = db.Column(db.Integer, nullable=False, default=0)
+    created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+    started_at = db.Column(db.DateTime)
+    completed_at = db.Column(db.DateTime)
+    error_message = db.Column(db.Text)
+    provider_response_id = db.Column(db.String(255))
+    input_tokens = db.Column(db.Integer)
+    output_tokens = db.Column(db.Integer)
+    __table_args__ = (
+        db.CheckConstraint("status IN ('queued', 'working', 'completed', 'failed')", name="ck_follow_up_generation_job_status"),
+        db.Index("ix_follow_up_generation_claim", "status", "available_at", "lease_expires_at"),
+        db.Index("ix_follow_up_generation_history", "opportunity_id", "created_at"),
     )
 
 
@@ -984,7 +1158,38 @@ def get_active_initiative():
 def inject_customer_brand():
     """Expose one consistent customer brand to the shared layout."""
 
-    return {"brand_organization": get_active_organization()}
+    organization = get_active_organization()
+    initiative = get_active_initiative()
+    intelligence = (
+        get_sponsorship_intelligence(organization, initiative)
+        if organization and initiative
+        else None
+    )
+    assets = (
+        get_sponsorship_assets(organization, initiative)
+        if intelligence is not None
+        else []
+    )
+    opportunities = getattr(g, "workflow_opportunities", None)
+    if opportunities is None:
+        opportunities = (
+            Opportunity.query.filter_by(
+                organization_id=organization.id,
+                initiative_id=initiative.id,
+            ).all()
+            if organization and initiative
+            else []
+        )
+    return {
+        "brand_organization": organization,
+        "workflow_navigation": build_primary_navigation(
+            organization=organization,
+            initiative=initiative,
+            intelligence=intelligence,
+            assets=assets,
+            opportunities=opportunities,
+        ),
+    }
 
 
 def get_org_profile():
@@ -1281,70 +1486,6 @@ def enqueue_workspace_intelligence_generation(
     )
 
 
-def run_inline_workspace_intelligence_generation(
-    organization,
-    initiative,
-    *,
-    regenerate=False,
-):
-    """Generate the active initiative now while retaining durable job state."""
-
-    from services.sponsorship_intelligence_jobs import (
-        mark_completed,
-        mark_failed,
-        mark_processing,
-    )
-
-    job, created = enqueue_workspace_intelligence_generation(
-        organization,
-        initiative,
-        regenerate=regenerate,
-    )
-    if not created and getattr(job, "status", None) == "processing":
-        return None
-
-    now = datetime.now(UTC)
-    mark_processing(
-        job,
-        worker_id=f"inline-web:{os.getpid()}",
-        lease_seconds=600,
-        now=now,
-    )
-    db.session.commit()
-
-    try:
-        result = run_workspace_intelligence_generation(
-            organization.id,
-            initiative.id,
-            regenerate=regenerate,
-            workflow_budget_seconds=float(
-                os.getenv("BACKGROUND_WORKFLOW_BUDGET_SECONDS", "240")
-            ),
-        )
-    except Exception:
-        db.session.rollback()
-        message = (
-            "Strategy generation stopped unexpectedly. Please try again."
-        )
-        mark_failed(
-            job,
-            message=message,
-            error_code="unexpected_inline_generation_error",
-        )
-        return SimpleNamespace(success=False, message=message)
-    if result.success:
-        mark_completed(job)
-    else:
-        mark_failed(
-            job,
-            message=result.message,
-            error_code=result.error_code or result.status,
-            generation_step=result.generation_step,
-            failure_details=result.failure_details,
-        )
-    return result
-
-
 def get_workspace_intelligence_job(organization, initiative):
     """Return the active job, or the latest historical job when inactive."""
 
@@ -1365,13 +1506,13 @@ def client():
 
 
 
-def draft_outreach(prospect, contact):
+def draft_outreach(prospect, contact, *, worker_context=None):
     c = client()
 
     if not c:
         return "OPENAI_API_KEY is not configured. Outreach could not be drafted."
 
-    context = get_worker_context()
+    context = worker_context or get_worker_context()
 
     prompt = f"""
 You are the Outreach Drafting Worker for Marsha AI's Sponsorship Coordinator.
@@ -1445,13 +1586,13 @@ Rules:
 
 
 
-def draft_follow_up(opp):
+def draft_follow_up(opp, *, worker_context=None):
     c = client()
 
     if not c:
         return {"error": "OPENAI_API_KEY is not configured."}
 
-    context = get_worker_context()
+    context = worker_context or get_worker_context()
     channel = opp.outreach_channel or "email"
     original_message = opp.reviewed_message or opp.outreach or ""
 
@@ -1742,7 +1883,7 @@ improved_subject, improved_message, review_notes, risk_flags.
 
         return json.loads(text)
     except Exception as e:
-        return {"error": f"Message quality review failed: {str(e)}"}
+        return {"error": f"Outreach Review failed: {str(e)}"}
 
 
 @app.route("/setup", methods=["GET", "POST"])
@@ -1928,6 +2069,16 @@ def workspace():
     ).order_by(
         Opportunity.updated_at.desc()
     ).all()
+    from services.outreach_generation_jobs import get_latest_job as latest_outreach_job
+    from services.follow_up_generation_jobs import get_latest_job as latest_follow_up_job
+    for opportunity in opportunities:
+        opportunity.outreach_generation_job = latest_outreach_job(opportunity.id)
+        opportunity.follow_up_generation_job = latest_follow_up_job(opportunity.id)
+        contact_jobs = getattr(opportunity, "contact_research_jobs", ()) or ()
+        opportunity.contact_research_job = (
+            contact_jobs[-1] if contact_jobs else None
+        )
+    g.workflow_opportunities = opportunities
     dashboard = build_dashboard(
         organization=organization,
         initiative=initiative,
@@ -2026,7 +2177,7 @@ def strategy_meeting():
 
         if missing:
             flash(
-                "Complete the Strategy Meeting fields: "
+                "Complete the Sponsorship Strategy fields: "
                 + ", ".join(missing)
                 + ".",
                 "warning",
@@ -2051,29 +2202,22 @@ def strategy_meeting():
         )
         if existing_intelligence is not None:
             flash(
-                "Strategy Meeting answers saved. Review your strategy.",
+                "Strategy inputs updated. Your current strategy has not changed.",
                 "success",
             )
-            return redirect(url_for("strategy_work"))
+            return redirect(url_for("workspace"))
 
-        result = run_inline_workspace_intelligence_generation(
+        _, created = enqueue_workspace_intelligence_generation(
             organization,
             initiative,
         )
-        if result is not None and result.success:
-            flash(
-                "Strategy Meeting completed. Your strategy is ready for review.",
-                "success",
-            )
-            return redirect(url_for("strategy_work"))
-
         flash(
             (
-                result.message
-                if result is not None
+                "Sponsorship Strategy saved. Your Strategy Worker has started."
+                if created
                 else "Strategy generation is already in progress."
             ),
-            "warning",
+            "success" if created else "warning",
         )
         return redirect(url_for("workspace"))
 
@@ -2082,6 +2226,7 @@ def strategy_meeting():
         organization=organization,
         initiative=initiative,
         form_values=None,
+        intelligence=get_sponsorship_intelligence(organization, initiative),
     )
 
 
@@ -2105,11 +2250,12 @@ def strategy_work():
     intelligence = get_sponsorship_intelligence(organization, initiative)
     if intelligence is None:
         flash(
-            "Complete the Strategy Meeting before reviewing strategy work.",
+            "Complete Sponsorship Strategy before reviewing strategy work.",
             "warning",
         )
         return redirect(url_for("strategy_meeting"))
 
+    assets = get_sponsorship_assets(organization, initiative)
     return render_template(
         "strategy_work.html",
         organization=organization,
@@ -2117,7 +2263,12 @@ def strategy_work():
         intelligence=intelligence,
         strategy=intelligence.sponsorship_strategy,
         categories=get_sponsor_categories(organization, initiative),
-        assets=get_sponsorship_assets(organization, initiative),
+        assets=assets,
+        strategy_approved=any(
+            getattr(asset, "is_active", True)
+            and getattr(asset, "approval_status", "Pending") == "Approved"
+            for asset in assets
+        ),
     )
 
 
@@ -2202,7 +2353,7 @@ def sponsorship_asset_review():
     )
     if intelligence is None:
         flash(
-            "Complete the Strategy Meeting before reviewing sponsorship assets.",
+            "Complete Sponsorship Strategy before reviewing sponsorship assets.",
             "warning",
         )
         return redirect(url_for("strategy_meeting"))
@@ -2323,22 +2474,33 @@ def generate_workspace_sponsorship_intelligence():
         )
         return redirect(url_for("workspace"))
 
-    result = run_inline_workspace_intelligence_generation(
+    regenerate = request.form.get("regenerate") == "true"
+    _, created = enqueue_workspace_intelligence_generation(
         organization,
         initiative,
-        regenerate=request.form.get("regenerate") == "true",
+        regenerate=regenerate,
     )
 
-    if result is not None and result.success:
-        flash("Your strategy is ready for review.", "success")
-        return redirect(url_for("strategy_work"))
-    if result is None:
+    if created:
         flash(
-            "Sponsorship intelligence generation is already in progress.",
-            "warning",
+            (
+                "Your Strategy Worker is rebuilding the sponsorship strategy. "
+                "You can continue using the Dashboard while it works."
+                if regenerate
+                else "Your Strategy Worker has started. You can leave this page "
+                "while the strategy is prepared."
+            ),
+            "success",
         )
     else:
-        flash(result.message, "warning")
+        flash(
+            (
+                "Strategy regeneration is already in progress."
+                if regenerate
+                else "Strategy generation is already in progress."
+            ),
+            "warning",
+        )
     return redirect(url_for("workspace"))
 
 
@@ -2377,7 +2539,7 @@ def _research_assignment_context(organization, initiative):
         asset_id = opportunity.sponsorship_asset_id
         if asset_id is not None:
             saved_counts[asset_id] = saved_counts.get(asset_id, 0) + 1
-    return assets, latest_by_asset, saved_counts
+    return assets, latest_by_asset, saved_counts, assignments
 
 
 @app.route("/research")
@@ -2391,7 +2553,7 @@ def research_worker():
     ):
         flash("Complete organization and initiative setup first.", "warning")
         return redirect(url_for("setup"))
-    assets, latest_by_asset, saved_counts = _research_assignment_context(
+    assets, latest_by_asset, saved_counts, assignments = _research_assignment_context(
         organization,
         initiative,
     )
@@ -2400,6 +2562,8 @@ def research_worker():
         assets=assets,
         latest_by_asset=latest_by_asset,
         saved_counts=saved_counts,
+        assignment_history=assignments,
+        assignment_asset_names={asset.id: asset.name for asset in assets},
     )
 
 
@@ -2422,110 +2586,23 @@ def start_asset_research(asset_id):
         )
         return redirect(url_for("research_worker"))
 
-    working = ResearchAssignment.query.filter_by(
-        organization_id=organization.id,
-        initiative_id=initiative.id,
-        sponsorship_asset_id=asset.id,
-        status="working",
-    ).first()
-    if working is not None:
-        flash("The Research Worker is already working on this asset.", "warning")
-        return redirect(
-            url_for("research_assignment", assignment_id=working.id)
-        )
+    from services.research_assignments import enqueue_assignment
 
-    assignment = ResearchAssignment(
-        organization_id=organization.id,
-        initiative_id=initiative.id,
-        sponsorship_asset_id=asset.id,
-        status="working",
-        started_at=datetime.now(UTC).replace(tzinfo=None),
+    assignment, created = enqueue_assignment(
+        organization,
+        initiative,
+        asset,
     )
-    db.session.add(assignment)
-    db.session.commit()
-
-    from services.sponsor_research import (
-        NoCredibleProspectsError,
-        SponsorResearchError,
-        SponsorResearchUnavailableError,
-        research_sponsorship_asset,
+    flash(
+        (
+            "Your Research Worker has started researching this sponsorship "
+            "opportunity."
+            if created
+            else "Your Research Worker is already researching this "
+            "sponsorship opportunity."
+        ),
+        "success" if created else "warning",
     )
-
-    try:
-        intelligence = get_sponsorship_intelligence(organization, initiative)
-        prior_names = [
-            item.company_name
-            for item in SponsorProspect.query.filter_by(
-                organization_id=organization.id,
-                initiative_id=initiative.id,
-                sponsorship_asset_id=asset.id,
-                is_active=True,
-            ).all()
-        ]
-        candidates = research_sponsorship_asset(
-            organization,
-            initiative,
-            asset,
-            intelligence.sponsor_eligibility,
-            prior_results=prior_names,
-        )
-        assignment.results_json = json.dumps(
-            [item.model_dump(mode="json") for item in candidates],
-            ensure_ascii=False,
-        )
-        assignment.result_count = len(candidates)
-        assignment.status = "completed"
-        assignment.completed_at = datetime.now(UTC).replace(tzinfo=None)
-        assignment.error_details = None
-        db.session.commit()
-        flash(
-            f"Research completed for {asset.name}. Review the results below.",
-            "success",
-        )
-    except (
-        NoCredibleProspectsError,
-        SponsorResearchUnavailableError,
-        SponsorResearchError,
-    ) as exc:
-        assignment.status = "needs_attention"
-        assignment.completed_at = datetime.now(UTC).replace(tzinfo=None)
-        assignment.error_details = str(exc)
-        assignment.result_count = 0
-        assignment.results_json = "[]"
-        db.session.commit()
-        app.logger.warning(
-            "asset_research_failed assignment_id=%s asset_id=%s reason=%s",
-            assignment.id,
-            asset.id,
-            getattr(exc, "reason_code", type(exc).__name__),
-        )
-        flash(
-            "The Research Worker could not complete this assignment. No "
-            "prospects were saved. Please try again or select another "
-            "sponsorship asset.",
-            "warning",
-        )
-    except Exception:
-        db.session.rollback()
-        assignment = db.session.get(ResearchAssignment, assignment.id)
-        assignment.status = "needs_attention"
-        assignment.completed_at = datetime.now(UTC).replace(tzinfo=None)
-        assignment.error_details = "Unexpected research processing failure."
-        assignment.result_count = 0
-        assignment.results_json = "[]"
-        db.session.commit()
-        app.logger.exception(
-            "asset_research_failed assignment_id=%s asset_id=%s "
-            "reason=unexpected_error",
-            assignment.id,
-            asset.id,
-        )
-        flash(
-            "The Research Worker could not complete this assignment. No "
-            "prospects were saved. Please try again or select another "
-            "sponsorship asset.",
-            "warning",
-        )
     return redirect(
         url_for("research_assignment", assignment_id=assignment.id)
     )
@@ -2533,6 +2610,8 @@ def start_asset_research(asset_id):
 
 @app.route("/research/assignments/<int:assignment_id>")
 def research_assignment(assignment_id):
+    from services.sponsor_prospect_persistence import normalized_company_key
+
     organization = get_active_organization()
     initiative = get_active_initiative()
     assignment = ResearchAssignment.query.filter_by(
@@ -2551,11 +2630,72 @@ def research_assignment(assignment_id):
             "warning",
         )
         return redirect(url_for("research_worker"))
+    selection_prospect_ids = {
+        row.sponsor_prospect_id
+        for row in ResearchAssignmentSelection.query.filter_by(
+            research_assignment_id=assignment.id
+        ).all()
+    }
+    prospects_by_key = {
+        prospect.company_key: prospect
+        for prospect in SponsorProspect.query.filter_by(
+            organization_id=organization.id,
+            initiative_id=initiative.id,
+            is_active=True,
+        ).all()
+    }
+    opportunities_by_prospect = {
+        opportunity.sponsor_prospect_id: opportunity
+        for opportunity in Opportunity.query.filter_by(
+            organization_id=organization.id,
+            initiative_id=initiative.id,
+        ).all()
+        if opportunity.sponsor_prospect_id is not None
+    }
+    saved_results = {}
+    for index, result in enumerate(assignment.results):
+        key = normalized_company_key(
+            result.get("company_name", ""), result.get("website", "")
+        )
+        prospect = prospects_by_key.get(key)
+        opportunity = (
+            opportunities_by_prospect.get(prospect.id) if prospect else None
+        )
+        if opportunity is not None:
+            saved_results[index] = {
+                "status": (
+                    "saved_from_assignment"
+                    if prospect.id in selection_prospect_ids
+                    else "already_in_pipeline"
+                ),
+                "opportunity_id": opportunity.id,
+            }
     return render_template(
         "research_results.html",
         assignment=assignment,
         asset=asset,
         results=assignment.results,
+        saved_results=saved_results,
+    )
+
+
+@app.route("/research/assignments/<int:assignment_id>/status")
+def research_assignment_status(assignment_id):
+    organization = get_active_organization()
+    initiative = get_active_initiative()
+    assignment = ResearchAssignment.query.filter_by(
+        id=assignment_id,
+        organization_id=getattr(organization, "id", None),
+        initiative_id=getattr(initiative, "id", None),
+    ).first_or_404()
+    return jsonify(
+        {
+            "status": assignment.status,
+            "terminal": assignment.status in {"completed", "needs_attention"},
+            "refresh_url": url_for(
+                "research_assignment", assignment_id=assignment.id
+            ),
+        }
     )
 
 
@@ -2564,10 +2704,11 @@ def research_assignment(assignment_id):
     methods=["POST"],
 )
 def review_research_assignment(assignment_id):
-    from services.sponsor_prospect_persistence import (
-        SponsorProspectPersistenceError,
-        persist_sponsor_prospects,
+    from services.research_selection_persistence import (
+        ResearchSelectionPersistenceError,
+        save_research_selections,
     )
+    from services.sponsor_prospect_persistence import SponsorProspectPersistenceError
     from services.sponsor_research import SponsorProspectCandidate
 
     organization = get_active_organization()
@@ -2591,11 +2732,10 @@ def review_research_assignment(assignment_id):
         return redirect(url_for("research_worker"))
     action = request.form.get("action")
     if action == "reject_all":
-        assignment.results_json = "[]"
-        assignment.result_count = 0
-        db.session.commit()
-        flash("All results were rejected. No prospects were saved.", "success")
-        return redirect(url_for("research_worker"))
+        flash("Results left unchanged. No sponsors were saved.", "success")
+        return redirect(
+            url_for("research_assignment", assignment_id=assignment.id)
+        )
 
     raw_results = assignment.results
     if action == "save_all":
@@ -2628,57 +2768,22 @@ def review_research_assignment(assignment_id):
             SponsorProspectCandidate.model_validate(raw_results[index])
             for index in selected_indexes
         ]
-        prospects = persist_sponsor_prospects(
+        result = save_research_selections(
             organization,
             initiative,
+            assignment,
+            asset,
             category,
             candidates,
-            sponsorship_asset=asset,
         )
-        created_count = 0
-        for prospect_record in prospects:
-            existing = Opportunity.query.filter_by(
-                organization_id=organization.id,
-                initiative_id=initiative.id,
-                sponsorship_asset_id=asset.id,
-                sponsor_prospect_id=prospect_record.id,
-            ).first()
-            if existing is not None:
-                continue
-            db.session.add(
-                Opportunity(
-                    organization_id=organization.id,
-                    initiative_id=initiative.id,
-                    sponsorship_asset_id=asset.id,
-                    sponsor_prospect_id=prospect_record.id,
-                    parent_prospect=prospect_record.company_name,
-                    recommended_target=prospect_record.company_name,
-                    category=asset.name,
-                    score=prospect_record.ranking_score,
-                    contact_name=prospect_record.contact_name,
-                    title=prospect_record.contact_title,
-                    department=prospect_record.contact_department,
-                    email=prospect_record.contact_email,
-                    phone=prospect_record.contact_phone,
-                    contact_url=prospect_record.contact_url,
-                    why_this_contact=(
-                        "Public business contact information found during "
-                        "sponsor research."
-                        if prospect_record.contact_evidence_url
-                        else "No reliable public contact was found."
-                    ),
-                    confidence=prospect_record.confidence,
-                    verified_date=prospect_record.research_date.isoformat(),
-                    sources_json=prospect_record.evidence_json,
-                    stage="Research Approved",
-                )
-            )
-            created_count += 1
-        db.session.commit()
-    except (SponsorProspectPersistenceError, ValueError):
+    except (
+        ResearchSelectionPersistenceError,
+        SponsorProspectPersistenceError,
+        ValueError,
+    ):
         db.session.rollback()
         flash(
-            "The selected results could not be saved. Existing pipeline "
+            "The selected results could not be saved. Existing Sponsor Pipeline "
             "records were preserved.",
             "warning",
         )
@@ -2686,12 +2791,25 @@ def review_research_assignment(assignment_id):
             url_for("research_assignment", assignment_id=assignment.id)
         )
 
-    flash(
-        f"{created_count} sponsor prospect"
-        f"{'' if created_count == 1 else 's'} saved to the pipeline.",
-        "success",
+    if result.added_count:
+        message = (
+            f"{result.added_count} sponsor organization"
+            f"{'' if result.added_count == 1 else 's'} saved to the "
+            "Sponsor Pipeline."
+        )
+        if result.already_saved_count:
+            message += f" {result.already_saved_count} were already saved."
+    else:
+        message = (
+            "No new sponsors were added. "
+            f"{result.already_saved_count} selected sponsor"
+            f"{' was' if result.already_saved_count == 1 else 's were'} "
+            "already saved."
+        )
+    flash(message, "success")
+    return redirect(
+        url_for("show_pipeline", new_sponsors=result.added_count)
     )
-    return redirect(url_for("research_worker"))
 
 
 @app.route("/prospects/<category>", methods=["GET", "POST"])
@@ -2763,7 +2881,7 @@ def prospects(category):
             flash(
                 (
                     f"Evidence-backed sponsor research completed. "
-                    f"{len(saved_prospects)} prospect"
+                    f"{len(saved_prospects)} sponsor organization"
                     f"{'' if len(saved_prospects) == 1 else 's'} saved."
                 ),
                 "success",
@@ -2817,7 +2935,7 @@ def prospects(category):
             flash(
                 (
                     "Sponsor research returned an invalid result. No new "
-                    "prospects were saved, and existing prospects were "
+                    "sponsors were saved, and existing sponsors were "
                     "preserved."
                 ),
                 "warning",
@@ -2837,8 +2955,8 @@ def prospects(category):
             )
             flash(
                 (
-                    "Sponsor research completed, but the prospects could not "
-                    "be saved. Existing prospects were preserved."
+                    "Sponsor Research completed, but the sponsors could not "
+                    "be saved. Existing sponsors were preserved."
                 ),
                 "warning",
             )
@@ -2882,7 +3000,7 @@ def prospect(category, index):
         is_active=True,
     ).first()
     if prospect_record is None:
-        flash("That researched sponsor prospect is not available.", "warning")
+        flash("That researched sponsor is not available.", "warning")
         return redirect(url_for("prospects", category=category))
 
     p = sponsor_prospect_context(prospect_record, category_record)
@@ -2953,7 +3071,7 @@ def prospect(category, index):
         ):
             flash(
                 "No reliable public contact route is available for this "
-                "prospect.",
+                "sponsor.",
                 "warning",
             )
         else:
@@ -3048,7 +3166,7 @@ def approve(category, index):
         is_active=True,
     ).first()
     if prospect_record is None:
-        flash("That researched sponsor prospect is not available.", "warning")
+        flash("That researched sponsor is not available.", "warning")
         return redirect(url_for("prospects", category=category))
 
     p = sponsor_prospect_context(prospect_record, category_record)
@@ -3091,7 +3209,7 @@ def approve(category, index):
         for error in readiness_errors:
             flash(error, "warning")
 
-        flash("This opportunity is not ready to approve yet.", "warning")
+        flash("This Sponsor Opportunity is not ready to approve yet.", "warning")
         return redirect(url_for("prospect", category=category, index=index))
 
     existing = Opportunity.query.filter_by(
@@ -3100,7 +3218,7 @@ def approve(category, index):
     ).first()
 
     if existing:
-        flash("This opportunity is already saved.", "warning")
+        flash("This Sponsor Opportunity is already saved.", "warning")
         return redirect(url_for("opportunity_detail", opportunity_id=existing.id))
 
     opp = Opportunity(
@@ -3127,7 +3245,7 @@ def approve(category, index):
     db.session.add(opp)
     db.session.commit()
 
-    flash(f"{opp.recommended_target} saved as a permanent opportunity.", "success")
+    flash(f"{opp.recommended_target} saved as a Sponsor Opportunity.", "success")
     return redirect(url_for("opportunity_detail", opportunity_id=opp.id))
 
 
@@ -3147,6 +3265,12 @@ def show_pipeline():
         organization_id=organization.id,
         initiative_id=initiative.id,
     ).order_by(Opportunity.updated_at.desc()).all()
+    from services.outreach_generation_jobs import get_latest_job as latest_outreach_job
+    from services.follow_up_generation_jobs import get_latest_job as latest_follow_up_job
+    for opportunity in opportunities:
+        opportunity.outreach_generation_job = latest_outreach_job(opportunity.id)
+        opportunity.follow_up_generation_job = latest_follow_up_job(opportunity.id)
+    g.workflow_opportunities = opportunities
 
     return render_template(
         "pipeline.html",
@@ -3164,6 +3288,10 @@ def opportunity_detail(opportunity_id):
         ContactResearchJob.created_at.desc(),
         ContactResearchJob.id.desc(),
     ).first()
+    from services.outreach_generation_jobs import get_latest_job
+    outreach_generation_job = get_latest_job(opp.id)
+    from services.follow_up_generation_jobs import get_latest_job as latest_follow_up_job
+    follow_up_generation_job = latest_follow_up_job(opp.id)
 
     default_subject = opp.subject or f"Potential partnership with {get_org_profile()['name']}"
     display_message = (opp.reviewed_message or opp.outreach or "").replace(
@@ -3194,12 +3322,15 @@ def opportunity_detail(opportunity_id):
     return render_template(
         "opportunity.html",
         opp=opp,
+        opportunity_progress=build_opportunity_progress(opp),
         stages=STAGES,
         test_mode=TEST_MODE,
         test_email=TEST_EMAIL,
         default_subject=default_subject,
         display_message=display_message,
         contact_research_job=contact_research_job,
+        outreach_generation_job=outreach_generation_job,
+        follow_up_generation_job=follow_up_generation_job,
         review_notes=review_notes,
         follow_up_due=follow_up_due,
         follow_up_review_notes=follow_up_review_notes
@@ -3235,64 +3366,33 @@ def generate_opportunity_outreach(opportunity_id):
             url_for("opportunity_detail", opportunity_id=opportunity.id)
         )
 
-    prospect_record = db.session.get(
-        SponsorProspect,
-        getattr(opportunity, "sponsor_prospect_id", None),
-    )
-    prospect = {
-        "name": (
-            getattr(opportunity, "recommended_target", None)
-            or getattr(opportunity, "parent_prospect", "")
-        ),
-        "category": getattr(opportunity, "category", "") or "",
-        "fit": getattr(prospect_record, "why_fits", "") or "",
-        "angle": (
-            getattr(prospect_record, "recommended_ask", None)
-            or getattr(prospect_record, "why_recommended", None)
-            or ""
-        ),
-    }
-    contact = {
-        "recommended_target": opportunity.recommended_target,
-        "contact_name": opportunity.contact_name,
-        "title": opportunity.title,
-        "department": opportunity.department,
-        "email": opportunity.email,
-        "phone": opportunity.phone,
-        "contact_url": opportunity.contact_url,
-        "why_this_contact": opportunity.why_this_contact,
-        "sources": opportunity.sources,
-    }
-    outreach = draft_outreach(prospect, contact)
-    readiness_errors = validate_outreach_readiness(contact, outreach)
-    if outreach.startswith(
-        ("OPENAI_API_KEY is not configured.", "Outreach drafting failed:")
-    ):
-        readiness_errors.append(outreach)
-    if readiness_errors:
-        for error in dict.fromkeys(readiness_errors):
-            flash(error, "warning")
-        return redirect(
-            url_for("opportunity_detail", opportunity_id=opportunity.id)
-        )
-
-    opportunity.outreach = outreach
-    opportunity.outreach_channel = determine_outreach_channel(contact)
-    opportunity.message_approved_at = None
-    if opportunity.outreach_channel == "email" and not opportunity.subject:
-        opportunity.subject = (
-            f"Potential partnership with {get_org_profile()['name']}"
-        )
-    opportunity.stage = "Ready to Send"
-    db.session.commit()
-
+    from services.outreach_generation_jobs import enqueue_job
+    _, created = enqueue_job(organization, initiative, opportunity)
     flash(
-        "Sponsor outreach generated. Review the draft before sending.",
-        "success",
+        (
+            "Your Outreach Worker has started preparing the sponsor message."
+            if created else
+            "Your Outreach Worker is already preparing this message."
+        ),
+        "success" if created else "warning",
     )
     return redirect(
         url_for("opportunity_detail", opportunity_id=opportunity.id)
     )
+
+
+@app.route("/opportunity/<int:opportunity_id>/outreach-status")
+def outreach_generation_status(opportunity_id):
+    organization = get_active_organization(); initiative = get_active_initiative()
+    opportunity = Opportunity.query.filter_by(
+        id=opportunity_id, organization_id=getattr(organization, "id", None),
+        initiative_id=getattr(initiative, "id", None),
+    ).first_or_404()
+    from services.outreach_generation_jobs import get_latest_job
+    job = get_latest_job(opportunity.id)
+    status = getattr(job, "status", "not_started")
+    return jsonify({"status": status, "terminal": status in {"completed", "failed"},
+                    "refresh_url": url_for("opportunity_detail", opportunity_id=opportunity.id)})
 
 
 @app.route(
@@ -3340,7 +3440,7 @@ def review_message(opportunity_id):
     message = request.form.get("message", "").strip()
 
     if channel == "email" and (not subject or not message):
-        flash("Subject and message are required before review.", "warning")
+        flash("Subject and outreach are required before review.", "warning")
         return redirect(url_for("opportunity_detail", opportunity_id=opp.id))
 
     if channel != "email" and not message:
@@ -3365,7 +3465,7 @@ def review_message(opportunity_id):
 
     db.session.commit()
 
-    flash("Message quality review completed. Review the improved version before sending.", "success")
+    flash("Outreach Review completed. Review the final outreach before approval.", "success")
     return redirect(url_for("opportunity_detail", opportunity_id=opp.id))
 
 @app.route(
@@ -3377,7 +3477,7 @@ def reset_message_review(opportunity_id):
 
     if opp.stage != "Ready to Send":
         flash(
-            "Only opportunities that are ready to send can be re-reviewed.",
+            "Only Sponsor Opportunities in Outreach Preparation can be reviewed again.",
             "warning"
         )
         return redirect(
@@ -3416,7 +3516,7 @@ def approve_message(opportunity_id):
         and opp.message_reviewed_at
     ):
         flash(
-            "Run Message Quality Review before approving outreach.",
+            "Complete Outreach Review before approving outreach.",
             "warning",
         )
         return redirect(
@@ -3424,7 +3524,7 @@ def approve_message(opportunity_id):
         )
 
     if opp.message_approved_at:
-        flash("Outreach message is already approved.", "info")
+        flash("Sponsor Outreach is already approved.", "info")
         return redirect(
             url_for("opportunity_detail", opportunity_id=opp.id)
         )
@@ -3433,7 +3533,7 @@ def approve_message(opportunity_id):
     db.session.commit()
 
     flash(
-        "Outreach message approved. It is ready to send.",
+        "Sponsor Outreach approved. It is Ready to Send.",
         "success",
     )
     return redirect(
@@ -3450,19 +3550,19 @@ def send_email(opportunity_id):
         and opp.message_reviewed_at
         and opp.message_approved_at
     ):
-        flash("Approve the reviewed message before sending.", "warning")
+        flash("Approve the reviewed outreach before sending.", "warning")
         return redirect(url_for("opportunity_detail", opportunity_id=opp.id))
 
     subject = (opp.subject or "").strip()
     message = (opp.reviewed_message or opp.outreach or "").strip()
 
     if not subject or not message:
-        flash("Subject and message are required.", "warning")
+        flash("Subject and outreach are required.", "warning")
         return redirect(url_for("opportunity_detail", opportunity_id=opp.id))
 
     if TEST_MODE:
         recipient = TEST_EMAIL
-        subject_to_send = f"[TEST — NOT SENT TO PROSPECT] {subject}"
+        subject_to_send = f"[TEST — NOT SENT TO SPONSOR] {subject}"
         delivery_mode = "TEST"
     else:
         recipient = opp.email
@@ -3488,7 +3588,7 @@ def send_email(opportunity_id):
             smtp.login(SMTP_EMAIL, SMTP_APP_PASSWORD)
             smtp.send_message(email)
     except Exception as e:
-        flash(f"Email was not sent: {str(e)}", "warning")
+        flash(f"Outreach was not sent: {str(e)}", "warning")
         return redirect(url_for("opportunity_detail", opportunity_id=opp.id))
 
     opp.subject = subject
@@ -3501,7 +3601,7 @@ def send_email(opportunity_id):
 
     db.session.commit()
 
-    flash(f"{delivery_mode} email sent to {recipient}. Follow-up scheduled for 7 days from today.", "success")
+    flash(f"{delivery_mode} outreach sent to {recipient}. Follow-Up scheduled for 7 days from today.", "success")
     return redirect(url_for("opportunity_detail", opportunity_id=opp.id))
 
 @app.route("/opportunity/<int:opportunity_id>/mark-sent", methods=["POST"])
@@ -3513,7 +3613,7 @@ def mark_sent(opportunity_id):
         and opp.message_reviewed_at
         and opp.message_approved_at
     ):
-        flash("Approve the reviewed message before sending.", "warning")
+        flash("Approve the reviewed outreach before sending.", "warning")
         return redirect(url_for("opportunity_detail", opportunity_id=opp.id))
 
     opp.stage = "Sent"
@@ -3533,11 +3633,11 @@ def mark_sent(opportunity_id):
     db.session.commit()
 
     if opp.outreach_channel == "phone":
-        flash("Call marked complete. Follow-up scheduled for 7 days from today.", "success")
+        flash("Outreach call sent. Follow-Up scheduled for 7 days from today.", "success")
     elif opp.outreach_channel == "contact_form":
-        flash("Contact form marked submitted. Follow-up scheduled for 7 days from today.", "success")
+        flash("Contact-form outreach sent. Follow-Up scheduled for 7 days from today.", "success")
     else:
-        flash("Outreach marked as sent. Follow-up scheduled for 7 days from today.", "success")
+        flash("Outreach sent. Follow-Up scheduled for 7 days from today.", "success")
 
     return redirect(url_for("opportunity_detail", opportunity_id=opp.id))
 
@@ -3584,35 +3684,36 @@ def apply_follow_up_draft(opp, result):
 
 @app.route("/opportunity/<int:opportunity_id>/generate-follow-up", methods=["POST"])
 def generate_follow_up(opportunity_id):
-    opp = Opportunity.query.get_or_404(opportunity_id)
+    organization = get_active_organization()
+    initiative = get_active_initiative()
+    opp = Opportunity.query.filter_by(
+        id=opportunity_id,
+        organization_id=getattr(organization, "id", None),
+        initiative_id=getattr(initiative, "id", None),
+    ).first_or_404()
 
     if not opp.follow_up_date or opp.follow_up_date > date.today():
-        flash("This opportunity is not due for follow-up yet.", "warning")
+        flash("This Sponsor Opportunity is not due for Follow-Up yet.", "warning")
         return redirect(url_for("opportunity_detail", opportunity_id=opp.id))
 
-    result = draft_follow_up(opp)
-
-    if result.get("error"):
-        flash(result["error"], "warning")
-        return redirect(url_for("opportunity_detail", opportunity_id=opp.id))
-
-    was_regenerated = bool(opp.follow_up_message)
-
-    apply_follow_up_draft(opp, result)
-
-    db.session.commit()
-
-    if was_regenerated:
-        flash(
-            "Follow-up draft regenerated. Review the new version before completing the follow-up.",
-            "success"
-        )
-    else:
-        flash(
-            "Follow-up draft generated. Review it before completing the follow-up.",
-            "success"
-        )
+    from services.follow_up_generation_jobs import enqueue_job
+    _, created = enqueue_job(organization, initiative, opp)
+    flash(
+        "Your Follow-Up Worker has started preparing the follow-up."
+        if created else
+        "Your Follow-Up Worker is already preparing this follow-up.",
+        "success" if created else "warning",
+    )
     return redirect(url_for("opportunity_detail", opportunity_id=opp.id))
+
+
+@app.route("/opportunity/<int:opportunity_id>/follow-up-status")
+def follow_up_generation_status(opportunity_id):
+    organization=get_active_organization();initiative=get_active_initiative()
+    opp=Opportunity.query.filter_by(id=opportunity_id,organization_id=getattr(organization,"id",None),initiative_id=getattr(initiative,"id",None)).first_or_404()
+    from services.follow_up_generation_jobs import get_latest_job
+    job=get_latest_job(opp.id);status=getattr(job,"status","not_started")
+    return jsonify({"status":status,"terminal":status in {"completed","failed"},"refresh_url":url_for("opportunity_detail",opportunity_id=opp.id)})
 
 
 @app.route("/opportunity/<int:opportunity_id>/review-follow-up", methods=["POST"])
@@ -3624,11 +3725,11 @@ def review_follow_up(opportunity_id):
     message = request.form.get("message", "").strip()
 
     if channel == "email" and (not subject or not message):
-        flash("Follow-up subject and message are required before review.", "warning")
+        flash("Follow-Up subject and outreach are required before review.", "warning")
         return redirect(url_for("opportunity_detail", opportunity_id=opp.id))
 
     if channel != "email" and not message:
-        flash("Follow-up content is required before review.", "warning")
+        flash("Follow-Up content is required before review.", "warning")
         return redirect(url_for("opportunity_detail", opportunity_id=opp.id))
 
     result = review_follow_up_quality(opp, subject, message)
@@ -3648,11 +3749,11 @@ def review_follow_up(opportunity_id):
     db.session.commit()
 
     if channel == "phone":
-        flash("Follow-up call script reviewed. Review the improved version before calling.", "success")
+        flash("Follow-Up reviewed. Review the final version before sending.", "success")
     elif channel == "contact_form":
-        flash("Follow-up contact-form message reviewed. Review it before submitting.", "success")
+        flash("Contact-form Follow-Up reviewed. Review it before sending.", "success")
     else:
-        flash("Follow-up email reviewed. Review it before sending.", "success")
+        flash("Follow-Up reviewed and ready to send.", "success")
 
     return redirect(url_for("opportunity_detail", opportunity_id=opp.id))
 
@@ -3676,7 +3777,7 @@ def build_follow_up_email_delivery(opp):
 
     if TEST_MODE:
         recipient = (TEST_EMAIL or "").strip()
-        subject_to_send = f"[TEST — NOT SENT TO PROSPECT] {subject}"
+        subject_to_send = f"[TEST — NOT SENT TO SPONSOR] {subject}"
         delivery_mode = "TEST"
     else:
         recipient = (opp.email or "").strip()
@@ -3727,7 +3828,7 @@ def send_follow_up_email(opportunity_id):
     opp = Opportunity.query.get_or_404(opportunity_id)
 
     if not opp.follow_up_reviewed_at:
-        flash("Review the follow-up before sending it.", "warning")
+        flash("Review the Follow-Up before sending it.", "warning")
         return redirect(
             url_for("opportunity_detail", opportunity_id=opp.id)
         )
@@ -3745,7 +3846,7 @@ def send_follow_up_email(opportunity_id):
             url_for("opportunity_detail", opportunity_id=opp.id)
         )
     except Exception as error:
-        flash(f"Follow-up email was not sent: {str(error)}", "warning")
+        flash(f"Follow-Up was not sent: {str(error)}", "warning")
         return redirect(
             url_for("opportunity_detail", opportunity_id=opp.id)
         )
@@ -3769,7 +3870,7 @@ def complete_follow_up(opportunity_id):
     opp = Opportunity.query.get_or_404(opportunity_id)
 
     if not opp.follow_up_reviewed_at:
-        flash("Review the follow-up before marking it complete.", "warning")
+        flash("Review the Follow-Up before marking it complete.", "warning")
         return redirect(url_for("opportunity_detail", opportunity_id=opp.id))
 
     record_follow_up_completion(opp)
@@ -3777,11 +3878,11 @@ def complete_follow_up(opportunity_id):
     db.session.commit()
 
     if opp.outreach_channel == "phone":
-        flash("Follow-up call recorded. The next follow-up is scheduled for 7 days from today.", "success")
+        flash("Follow-Up call sent. The next Follow-Up is scheduled for 7 days from today.", "success")
     elif opp.outreach_channel == "contact_form":
-        flash("Follow-up contact form recorded. The next follow-up is scheduled for 7 days from today.", "success")
+        flash("Contact-form Follow-Up sent. The next Follow-Up is scheduled for 7 days from today.", "success")
     else:
-        flash("Follow-up email recorded. The next follow-up is scheduled for 7 days from today.", "success")
+        flash("Follow-Up recorded. The next Follow-Up is scheduled for 7 days from today.", "success")
 
     return redirect(url_for("opportunity_detail", opportunity_id=opp.id))
 
@@ -3798,7 +3899,7 @@ def update_opportunity(opportunity_id):
 
     db.session.commit()
 
-    flash("Opportunity updated.", "success")
+    flash("Sponsor Opportunity updated.", "success")
     return redirect(url_for("opportunity_detail", opportunity_id=opp.id))
 
 

@@ -75,6 +75,13 @@ def opportunity(
     email=None,
     phone=None,
     contact_url=None,
+    sent_date=None,
+    follow_up_completed_at=None,
+    follow_up_message=None,
+    follow_up_reviewed_at=None,
+    outreach_generation_job=None,
+    follow_up_generation_job=None,
+    contact_research_job=None,
 ):
     return SimpleNamespace(
         id=identifier,
@@ -92,6 +99,13 @@ def opportunity(
         email=email,
         phone=phone,
         contact_url=contact_url,
+        sent_date=sent_date,
+        follow_up_completed_at=follow_up_completed_at,
+        follow_up_message=follow_up_message,
+        follow_up_reviewed_at=follow_up_reviewed_at,
+        outreach_generation_job=outreach_generation_job,
+        follow_up_generation_job=follow_up_generation_job,
+        contact_research_job=contact_research_job,
     )
 
 
@@ -101,6 +115,7 @@ def prospect():
         company_name="Evidence Company",
         category_slug="technology",
         updated_at=NOW - timedelta(hours=1),
+        created_at=NOW - timedelta(hours=1),
     )
 
 
@@ -130,14 +145,14 @@ def test_completed_strategy_requires_asset_review_before_research():
     dashboard = build(assets=[])
 
     assert dashboard.top_priority.title == (
-        "Your sponsorship strategy is ready for review"
+        "Continue Strategy Review"
     )
     assert dashboard.top_priority.action.endpoint == (
         "strategy_work"
     )
     assert dashboard.top_priority.worker_name == "Strategy Worker"
     assert dashboard.top_priority.status == "Ready for Review"
-    assert dashboard.top_priority.action.label == "Review Strategy"
+    assert dashboard.top_priority.action.label == "Continue Strategy Review"
 
 
 def test_asset_review_precedes_eligibility_remediation_until_approval():
@@ -150,7 +165,7 @@ def test_asset_review_precedes_eligibility_remediation_until_approval():
     )
 
     assert dashboard.top_priority.title == (
-        "Your sponsorship strategy is ready for review"
+        "Continue Strategy Review"
     )
 
 
@@ -162,11 +177,11 @@ def test_dashboard_builds_time_aware_greeting_and_summary():
     assert dashboard.pipeline_count == 0
     assert [step.label for step in dashboard.progress] == [
         "Organization Setup",
-        "Strategy Meeting",
+        "Sponsorship Strategy",
         "Sponsor Research",
-        "Outreach",
-        "Follow-ups",
-        "Sponsors Secured",
+        "Outreach Preparation",
+        "Follow-Up",
+        "Complete",
     ]
     assert [worker.name for worker in dashboard.workers] == [
         "Strategy Worker",
@@ -202,7 +217,7 @@ def test_failed_work_is_the_highest_priority():
     )
 
     assert dashboard.top_priority.title == (
-        "Your Strategy Worker needs attention"
+        "Strategy generation needs attention"
     )
     assert dashboard.top_priority.action.label == "Retry Strategy Generation"
     assert dashboard.top_priority.action.form_data == {
@@ -227,7 +242,7 @@ def test_active_regeneration_precedes_stale_intelligence_state():
     )
 
     assert dashboard.top_priority.title == (
-        "Your Strategy Worker is preparing your sponsorship strategy"
+        "View Strategy Progress"
     )
 
 
@@ -244,17 +259,15 @@ def test_blocked_eligibility_precedes_overdue_follow_up():
         opportunities=[overdue],
     )
 
-    assert dashboard.top_priority.title == (
-        "Your Research Worker needs required information"
-    )
+    assert dashboard.top_priority.title == "Edit Organization Setup"
     assert dashboard.top_priority.message == (
-        "Sponsor research is waiting for required information."
+        "Sponsor Research is waiting for required eligibility information."
     )
-    assert dashboard.top_priority.supporting_line == "Audience age context"
+    assert dashboard.top_priority.supporting_line is None
     assert dashboard.workers[1].status == "Needs Attention"
 
 
-def test_active_outreach_precedes_pipeline_follow_up():
+def test_due_follow_up_precedes_outreach_review():
     overdue = opportunity(
         identifier=1,
         stage="Sent",
@@ -268,11 +281,9 @@ def test_active_outreach_precedes_pipeline_follow_up():
 
     dashboard = build(opportunities=[waiting, overdue])
 
-    assert dashboard.top_priority.title == (
-        "Review the prepared sponsor outreach"
-    )
+    assert dashboard.top_priority.title == "Continue Follow-Up"
     assert dashboard.top_priority.action.route_params == {
-        "opportunity_id": 2
+        "opportunity_id": 1
     }
     assert dashboard.workers[2].status == "Waiting for you"
 
@@ -304,11 +315,11 @@ def test_outreach_worker_requires_review_then_approval_then_send():
     send_dashboard = build(opportunities=[approved])
 
     assert review_dashboard.workers[2].status == "Waiting for you"
-    assert review_dashboard.workers[2].action.label == "Review outreach"
+    assert review_dashboard.workers[2].action.label == "Continue Outreach Review"
     assert approve_dashboard.workers[2].status == "Waiting for you"
-    assert approve_dashboard.workers[2].action.label == "Approve outreach"
+    assert approve_dashboard.workers[2].action.label == "Approve Outreach"
     assert send_dashboard.workers[2].status == "Ready"
-    assert send_dashboard.workers[2].action.label == "Send outreach"
+    assert send_dashboard.workers[2].action.label == "Send Outreach"
 
 
 def test_strategy_ready_precedes_stale_outreach_without_intelligence():
@@ -319,7 +330,7 @@ def test_strategy_ready_precedes_stale_outreach_without_intelligence():
         opportunities=[waiting],
     )
 
-    assert dashboard.top_priority.title == "Your Strategy Worker is ready"
+    assert dashboard.top_priority.title == "Build Sponsorship Strategy"
 
 
 def test_missing_intelligence_precedes_research_and_pipeline():
@@ -330,7 +341,7 @@ def test_missing_intelligence_precedes_research_and_pipeline():
     )
 
     assert dashboard.top_priority.title == (
-        "Your Strategy Worker is ready"
+        "Build Sponsorship Strategy"
     )
     assert [step.status for step in dashboard.progress] == [
         "Complete",
@@ -350,8 +361,8 @@ def test_research_ready_precedes_pipeline_review():
         opportunities=[opportunity(stage="Sent")],
     )
 
-    assert dashboard.top_priority.title == "Manage your sponsorship pipeline"
-    assert dashboard.top_priority.action.endpoint == "show_pipeline"
+    assert dashboard.top_priority.title == "Research More Sponsors"
+    assert dashboard.top_priority.action.endpoint == "research_worker"
 
 
 def test_pipeline_review_and_prospect_review_fallbacks():
@@ -365,11 +376,9 @@ def test_pipeline_review_and_prospect_review_fallbacks():
         opportunities=[],
     )
 
-    assert with_pipeline.top_priority.title == "Manage your sponsorship pipeline"
-    assert no_action.top_priority.title == (
-        "What would you like your Research Worker to research next?"
-    )
-    assert no_action.top_priority.action.label == "Assign Research"
+    assert with_pipeline.top_priority.title == "Research More Sponsors"
+    assert no_action.top_priority.title == "Research More Sponsors"
+    assert no_action.top_priority.action.label == "Research More Sponsors"
 
 
 def test_recent_activity_uses_existing_record_timestamps():
@@ -389,11 +398,9 @@ def test_recent_activity_uses_existing_record_timestamps():
     )
 
     messages = [item.message for item in dashboard.recent_activity]
-    assert messages[0] == "Example Sponsor moved to Meeting."
-    assert "Evidence Company was added to Technology research." in messages
-    assert (
-        "The Strategy Worker completed intelligence generation." in messages
-    )
+    assert messages[0] == "Example Sponsor added to Sponsor Pipeline"
+    assert "Sponsorship strategy generated" in messages
+    assert all("moved to" not in message for message in messages)
 
 
 def test_worker_messages_are_operational_and_include_work_detail():
@@ -407,7 +414,7 @@ def test_worker_messages_are_operational_and_include_work_detail():
     assert all(worker.detail for worker in dashboard.workers)
 
 
-def test_recent_activity_is_limited_to_four_items():
+def test_recent_activity_is_limited_to_five_items():
     opportunities = [
         opportunity(
             identifier=index,
@@ -422,7 +429,7 @@ def test_recent_activity_is_limited_to_four_items():
         opportunities=opportunities,
     )
 
-    assert len(dashboard.recent_activity) == 4
+    assert len(dashboard.recent_activity) == 5
 
 
 def test_progress_uses_customer_facing_statuses():
@@ -452,7 +459,7 @@ def test_incomplete_setup_uses_organization_setup_hero():
     assert dashboard.top_priority.worker_name == "Organization Setup"
     assert dashboard.top_priority.worker_icon == "organization"
     assert dashboard.top_priority.status == "Action Required"
-    assert dashboard.top_priority.action.label == "Continue Setup"
+    assert dashboard.top_priority.action.label == "Edit Organization Setup"
     assert dashboard.top_priority.action.endpoint == "setup"
 
 
@@ -469,7 +476,7 @@ def test_completed_setup_without_meeting_uses_strategy_ready_hero():
 
     assert dashboard.top_priority.worker_name == "Strategy Worker"
     assert dashboard.top_priority.status == "Ready"
-    assert dashboard.top_priority.action.label == "Begin Strategy Meeting"
+    assert dashboard.top_priority.action.label == "Build Sponsorship Strategy"
     assert dashboard.top_priority.action.endpoint == "strategy_meeting"
 
 
@@ -496,7 +503,7 @@ def test_failed_research_assignment_uses_needs_attention_hero():
     assert dashboard.top_priority.worker_name == "Research Worker"
     assert dashboard.top_priority.status == "Needs Attention"
     assert dashboard.top_priority.action.label == (
-        "Review Research Assignment"
+        "Retry Sponsor Research"
     )
 
 
@@ -507,7 +514,7 @@ def test_unreviewed_completed_research_uses_completed_hero():
 
     assert dashboard.top_priority.worker_name == "Research Worker"
     assert dashboard.top_priority.status == "Completed"
-    assert dashboard.top_priority.action.label == "Review Research Results"
+    assert dashboard.top_priority.action.label == "Review Sponsor Results"
     assert dashboard.top_priority.action.route_params == {
         "assignment_id": 40
     }
@@ -608,10 +615,9 @@ def test_saving_one_research_result_keeps_research_worker_ready():
         ],
     )
 
-    assert dashboard.top_priority.worker_name == "Research Worker"
-    assert dashboard.top_priority.status == "Ready"
-    assert dashboard.top_priority.action.label == "Assign Research"
-    assert dashboard.top_priority.action.endpoint == "research_worker"
+    assert dashboard.top_priority.worker_name == "Pipeline Worker"
+    assert dashboard.top_priority.action.label == "Continue Pipeline"
+    assert dashboard.top_priority.action.route_params == {"opportunity_id": 1}
 
 
 def test_approved_contact_makes_outreach_ready_without_changing_research_hero():
@@ -625,7 +631,9 @@ def test_approved_contact_makes_outreach_ready_without_changing_research_hero():
         ],
     )
 
-    assert dashboard.top_priority.worker_name == "Research Worker"
+    assert dashboard.top_priority.worker_name == "Outreach Worker"
+    assert dashboard.top_priority.action.label == "Generate Outreach"
+    assert dashboard.top_priority.action.route_params == {"opportunity_id": 1}
     outreach_worker = next(
         worker
         for worker in dashboard.workers
@@ -633,8 +641,8 @@ def test_approved_contact_makes_outreach_ready_without_changing_research_hero():
     )
     assert outreach_worker.status == "Ready"
     assert outreach_worker.action.label == "Generate Outreach"
-    assert outreach_worker.action.endpoint == "generate_opportunity_outreach"
-    assert outreach_worker.action.method == "POST"
+    assert outreach_worker.action.endpoint == "opportunity_detail"
+    assert outreach_worker.action.method == "GET"
 
 
 def test_research_approved_without_contact_keeps_outreach_waiting():
@@ -670,11 +678,9 @@ def test_saving_results_from_several_assignments_keeps_research_ready():
         ],
     )
 
-    assert dashboard.top_priority.worker_name == "Research Worker"
-    assert dashboard.top_priority.status == "Ready"
-    assert dashboard.top_priority.title == (
-        "What would you like your Research Worker to research next?"
-    )
+    assert dashboard.top_priority.worker_name == "Pipeline Worker"
+    assert dashboard.top_priority.action.label == "Continue Pipeline"
+    assert dashboard.top_priority.action.endpoint == "show_pipeline"
 
 
 def test_beginning_outreach_uses_outreach_ready_hero():
@@ -684,7 +690,7 @@ def test_beginning_outreach_uses_outreach_ready_hero():
 
     assert dashboard.top_priority.worker_name == "Outreach Worker"
     assert dashboard.top_priority.status == "Ready"
-    assert dashboard.top_priority.action.label == "Begin Outreach"
+    assert dashboard.top_priority.action.label == "Generate Outreach"
 
 
 def test_generated_outreach_uses_review_outreach_hero():
@@ -699,17 +705,17 @@ def test_generated_outreach_uses_review_outreach_hero():
 
     assert dashboard.top_priority.worker_name == "Outreach Worker"
     assert dashboard.top_priority.status == "Waiting for you"
-    assert dashboard.top_priority.action.label == "Review outreach"
+    assert dashboard.top_priority.action.label == "Continue Outreach Review"
 
 
-def test_sent_opportunity_uses_pipeline_worker_hero():
+def test_sent_opportunity_without_due_work_returns_to_research():
     dashboard = build(
         opportunities=[opportunity(stage="Sent")],
     )
 
-    assert dashboard.top_priority.worker_name == "Pipeline Worker"
-    assert dashboard.top_priority.status == "Monitoring"
-    assert dashboard.top_priority.action.label == "Open Pipeline"
+    assert dashboard.top_priority.worker_name == "Research Worker"
+    assert dashboard.top_priority.status == "Ready"
+    assert dashboard.top_priority.action.label == "Research More Sponsors"
 
 
 def test_hero_and_matching_worker_panel_are_consistent():
@@ -725,3 +731,313 @@ def test_hero_and_matching_worker_panel_are_consistent():
     assert active_worker.status == dashboard.top_priority.status
     assert active_worker.action == dashboard.top_priority.action
     assert active_worker.detail == dashboard.top_priority.title
+
+
+def test_mission_control_no_setup_has_one_meaningful_priority():
+    dashboard = build(
+        organization=None,
+        initiative=None,
+        intelligence=None,
+        assets=[],
+        top_category=None,
+    )
+
+    assert dashboard.current_stage == "Organization Setup"
+    assert dashboard.top_priority.action.label == "Complete Organization Setup"
+    assert dashboard.metrics == ()
+    assert dashboard.recent_activity == ()
+    assert [step.state for step in dashboard.workflow_progress] == [
+        "current",
+        "locked",
+        "locked",
+        "locked",
+    ]
+
+
+def test_mission_control_uses_navigation_as_workflow_source():
+    dashboard = build()
+
+    assert dashboard.current_stage == "Sponsor Research"
+    assert [step.label for step in dashboard.workflow_progress] == [
+        "Organization Setup",
+        "Sponsorship Strategy",
+        "Sponsor Research",
+        "Sponsor Pipeline",
+    ]
+    assert [step.state for step in dashboard.workflow_progress] == [
+        "complete",
+        "complete",
+        "current",
+        "locked",
+    ]
+
+
+def test_mission_control_metrics_are_context_sensitive():
+    before_strategy = build(intelligence=None, assets=[])
+    research_ready = build()
+    with_outreach = build(
+        prospects=[prospect()],
+        opportunities=[
+            opportunity(
+                outreach="Draft",
+                message_reviewed_at=NOW,
+                message_approved_at=NOW,
+            )
+        ],
+    )
+
+    assert before_strategy.metrics == ()
+    assert [metric.label for metric in research_ready.metrics] == [
+        "Approved Assets"
+    ]
+    assert [metric.label for metric in with_outreach.metrics] == [
+        "Approved Assets",
+        "Sponsors Researched",
+        "Sponsors in Pipeline",
+        "Outreach Ready",
+        "Outreach Sent",
+        "Follow-Ups Due",
+    ]
+
+
+def test_mission_control_ai_team_uses_approved_worker_statuses():
+    dashboard = build(
+        opportunities=[opportunity(outreach="Draft")],
+    )
+
+    assert [worker.name for worker in dashboard.ai_team] == [
+        "Strategy Worker",
+        "Research Worker",
+        "Outreach Worker",
+        "Message Quality Review Worker",
+        "Follow-Up Worker",
+    ]
+    assert {worker.status for worker in dashboard.ai_team} <= {
+        "Waiting",
+        "Ready",
+        "Working",
+        "Complete",
+        "Needs Attention",
+    }
+
+
+def test_needs_attention_is_ordered_and_does_not_repeat_top_priority():
+    review = opportunity(identifier=1, outreach="Draft")
+    due = opportunity(
+        identifier=2,
+        stage="Sent",
+        follow_up_date=NOW.date() - timedelta(days=1),
+        sent_date=NOW.date() - timedelta(days=8),
+    )
+    dashboard = build(opportunities=[review, due])
+
+    assert dashboard.top_priority.action.route_params == {
+        "opportunity_id": 2
+    }
+    assert [item.title for item in dashboard.needs_attention] == [
+        "Outreach Review required"
+    ]
+
+
+def test_recent_activity_uses_explicit_timestamps_and_newest_first():
+    reviewed_at = NOW - timedelta(hours=2)
+    approved_at = NOW - timedelta(hours=1)
+    dashboard = build(
+        opportunities=[
+            opportunity(
+                created_at=NOW - timedelta(days=1),
+                outreach="Draft",
+                message_reviewed_at=reviewed_at,
+                message_approved_at=approved_at,
+            )
+        ],
+    )
+
+    assert [item.message for item in dashboard.recent_activity[:2]] == [
+        "Outreach for Example Sponsor approved",
+        "Outreach for Example Sponsor reviewed",
+    ]
+    assert dashboard.recent_activity[0].occurred_at > (
+        dashboard.recent_activity[1].occurred_at
+    )
+
+
+def test_unreliable_recent_activity_is_omitted():
+    dashboard = build(
+        intelligence=SimpleNamespace(sponsor_eligibility=intelligence().sponsor_eligibility),
+        assets=[],
+        prospects=[],
+        opportunities=[],
+    )
+
+    assert dashboard.recent_activity == ()
+
+
+def test_continue_working_contains_only_unlocked_destinations():
+    dashboard = build()
+
+    assert [link.label for link in dashboard.continue_links] == [
+        "View Strategy",
+    ]
+
+
+def test_strategy_working_has_explicit_resume_action():
+    dashboard = build(generation_job=SimpleNamespace(status="processing"))
+    assert dashboard.top_priority.action.label == "View Strategy Progress"
+    assert dashboard.top_priority.action.endpoint == "workspace"
+
+
+def test_contact_research_progress_and_failure_link_to_exact_opportunity():
+    working = build(opportunities=[opportunity(
+        stage="Research Approved",
+        contact_research_job=SimpleNamespace(status="processing"),
+    )])
+    failed = build(opportunities=[opportunity(
+        stage="Research Approved",
+        contact_research_job=SimpleNamespace(status="failed"),
+    )])
+    assert working.top_priority.action.label == "View Contact Research Progress"
+    assert working.top_priority.action.route_params == {"opportunity_id": 1}
+    assert failed.top_priority.action.label == "Retry Contact Research"
+    assert failed.top_priority.action.route_params == {"opportunity_id": 1}
+
+
+def test_outreach_worker_states_resume_exact_opportunity():
+    working = build(opportunities=[opportunity(
+        outreach_generation_job=SimpleNamespace(status="working"),
+    )])
+    failed = build(opportunities=[opportunity(
+        outreach_generation_job=SimpleNamespace(status="failed"),
+    )])
+    assert working.top_priority.action.label == "View Outreach Progress"
+    assert failed.top_priority.action.label == "Retry Outreach Generation"
+    assert working.top_priority.action.route_params == {"opportunity_id": 1}
+    assert failed.top_priority.action.route_params == {"opportunity_id": 1}
+
+
+def test_follow_up_resume_states_link_to_exact_opportunity():
+    working = build(opportunities=[opportunity(
+        stage="Sent",
+        follow_up_generation_job=SimpleNamespace(status="working"),
+    )])
+    failed = build(opportunities=[opportunity(
+        stage="Sent",
+        follow_up_generation_job=SimpleNamespace(status="failed"),
+    )])
+    review = build(opportunities=[opportunity(
+        stage="Sent", follow_up_message="Draft follow-up",
+    )])
+    send = build(opportunities=[opportunity(
+        stage="Sent", follow_up_message="Reviewed follow-up",
+        follow_up_reviewed_at=NOW,
+    )])
+    assert working.top_priority.action.label == "View Follow-Up Progress"
+    assert failed.top_priority.action.label == "Retry Follow-Up Generation"
+    assert review.top_priority.action.label == "Review Follow-Up"
+    assert send.top_priority.action.label == "Send Follow-Up"
+    assert {
+        item.top_priority.action.route_params["opportunity_id"]
+        for item in (working, failed, review, send)
+    } == {1}
+
+
+def test_equal_priority_uses_oldest_waiting_then_lowest_id():
+    newer = opportunity(identifier=9, updated_at=NOW, created_at=NOW)
+    older_high_id = opportunity(
+        identifier=8, updated_at=NOW - timedelta(hours=1),
+        created_at=NOW - timedelta(hours=1),
+    )
+    older_low_id = opportunity(
+        identifier=3, updated_at=NOW - timedelta(hours=1),
+        created_at=NOW - timedelta(hours=1),
+    )
+    for item in (newer, older_high_id, older_low_id):
+        item.outreach = "Draft"
+    dashboard = build(opportunities=[newer, older_high_id, older_low_id])
+    assert dashboard.top_priority.action.route_params == {"opportunity_id": 3}
+
+
+def test_top_priority_destination_is_not_duplicated_elsewhere():
+    dashboard = build(research_assignments=[assignment("working")])
+    top = dashboard.top_priority.action
+    assert all(
+        (item.action.endpoint, item.action.route_params)
+        != (top.endpoint, top.route_params)
+        for item in dashboard.needs_attention
+    )
+    assert all(link.endpoint != top.endpoint for link in dashboard.continue_links)
+
+
+def test_successful_research_retry_supersedes_historical_failure_for_asset():
+    dashboard = build(research_assignments=[
+        assignment("needs_attention", identifier=1, asset_id=7),
+        assignment("completed", identifier=4, asset_id=7),
+    ])
+    assert dashboard.top_priority.action.label == "Review Sponsor Results"
+    assert dashboard.top_priority.action.route_params == {"assignment_id": 4}
+    assert all(
+        item.action.route_params.get("assignment_id") != 1
+        for item in dashboard.needs_attention
+    )
+
+
+def test_successful_opportunity_data_supersedes_obsolete_job_failures():
+    contact = opportunity(
+        identifier=1,
+        stage="Research Approved",
+        email="partnerships@example.org",
+        contact_research_job=SimpleNamespace(status="failed"),
+    )
+    outreach = opportunity(
+        identifier=2,
+        stage="Ready to Send",
+        outreach="Persisted outreach",
+        outreach_generation_job=SimpleNamespace(status="failed"),
+    )
+    follow_up = opportunity(
+        identifier=3,
+        stage="Sent",
+        follow_up_date=NOW.date() - timedelta(days=1),
+        follow_up_message="Persisted follow-up",
+        follow_up_generation_job=SimpleNamespace(status="failed"),
+    )
+
+    dashboard = build(opportunities=[contact, outreach, follow_up])
+
+    assert dashboard.top_priority.title == "Review Follow-Up"
+    assert dashboard.top_priority.action.route_params == {
+        "opportunity_id": 3
+    }
+    assert all(
+        not item.title.endswith("generation needs attention")
+        for item in dashboard.needs_attention
+    )
+
+
+def test_active_follow_up_supersedes_older_persisted_draft_state():
+    dashboard = build(opportunities=[opportunity(
+        stage="Sent",
+        follow_up_date=NOW.date() - timedelta(days=1),
+        follow_up_message="Older persisted follow-up",
+        follow_up_generation_job=SimpleNamespace(status="queued"),
+    )])
+
+    assert dashboard.top_priority.status == "Working"
+    assert dashboard.top_priority.title == "View Follow-Up Progress"
+    assert dashboard.top_priority.action.route_params == {
+        "opportunity_id": 1
+    }
+
+
+def test_active_outreach_supersedes_older_persisted_review_state():
+    dashboard = build(opportunities=[opportunity(
+        stage="Ready to Send",
+        outreach="Older persisted outreach",
+        outreach_generation_job=SimpleNamespace(status="queued"),
+    )])
+
+    assert dashboard.top_priority.status == "Working"
+    assert dashboard.top_priority.title == "View Outreach Progress"
+    assert dashboard.top_priority.action.route_params == {
+        "opportunity_id": 1
+    }

@@ -1,5 +1,51 @@
-{% extends "base.html" %} {% block content %}
+{% extends "base.html" %}
+{% from "_workflow_guidance.html" import workflow_guidance %}
+{% block content %}
 <a href="{{ url_for('research_worker') }}">← Choose another asset</a>
+
+{% if assignment.status in ['ready', 'working'] %}
+  {{ workflow_guidance(
+    'Your Research Worker is queued' if assignment.status == 'ready' else 'Your Research Worker is working',
+    'Your Research Worker received the assignment for ' ~ asset.name ~ '.',
+    'Marsha AI is searching for qualified organizations and evaluating public evidence.',
+    'You can leave this page and return later. The results will appear here when ready.',
+    status_type='info'
+  ) }}
+{% elif assignment.status == 'needs_attention' %}
+  {{ workflow_guidance(
+    'Sponsor research needs attention',
+    'The research attempt finished without saving any sponsors.',
+    'The assignment could not be completed, and your existing records were preserved.',
+    'Retry this assignment or choose another approved sponsorship opportunity.',
+    'Retry Sponsor Research',
+    url_for('start_asset_research', asset_id=asset.id),
+    'btn-gold',
+    'warning',
+    'POST'
+  ) }}
+{% elif results %}
+  {{ workflow_guidance(
+    'Sponsor research is ready for review',
+    'Your Research Worker completed research for ' ~ asset.name ~ '.',
+    'Qualified sponsors and their public evidence are displayed below.',
+    'Select the sponsors you want to pursue and save them to your pipeline.',
+    'Review Sponsor Results',
+    '#research-results-review',
+    'btn-primary',
+    'success'
+  ) }}
+{% else %}
+  {{ workflow_guidance(
+    'Research completed with no qualified results',
+    'Your Research Worker completed this assignment.',
+    'No sponsor organizations met the qualification standard, so nothing was saved.',
+    'Choose another approved opportunity or run this research again.',
+    'Choose Another Opportunity',
+    url_for('research_worker'),
+    'btn-primary',
+    'warning'
+  ) }}
+{% endif %}
 
 <div class="eyebrow mt-4">RESEARCH ASSIGNMENT</div>
 <h1>{{ asset.name if asset else 'Sponsorship opportunity' }}</h1>
@@ -8,15 +54,16 @@
   sponsorship opportunity and are a strong fit for your initiative.
 </p>
 
-{% if assignment.status == 'working' %}
-<div class="alert alert-warning" role="status">
-  Research Worker is working.
+{% if assignment.status in ['ready', 'working'] %}
+<div class="alert alert-warning" role="status"
+  data-research-status-url="{{ url_for('research_assignment_status', assignment_id=assignment.id) }}">
+  Research Worker is {{ 'queued' if assignment.status == 'ready' else 'working' }}.
 </div>
 {% elif assignment.status == 'needs_attention' %}
 <div class="alert alert-warning">
   <strong>This assignment needs attention.</strong>
   <p class="mb-0">
-    The Research Worker could not complete this assignment. No prospects were
+    The Research Worker could not complete this assignment. No sponsors were
     saved. Please try again or select another sponsorship asset.
   </p>
   {% if assignment.error_details %}
@@ -30,13 +77,26 @@
 </form>
 {% elif results %}
 <form
+  id="research-results-review"
   method="post"
   action="{{ url_for('review_research_assignment', assignment_id=assignment.id) }}"
 >
   <div class="row g-3">
     {% for result in results %}
+    {% set saved = saved_results.get(loop.index0) %}
     <div class="col-lg-6">
       <article class="card p-4 h-100">
+        {% if saved %}
+        <div class="d-flex gap-3 align-items-start">
+          <span aria-hidden="true">&#10003;</span>
+          <span>
+            <strong class="h4 d-block">{{ result.company_name }}</strong>
+            <span class="badge text-bg-success">
+              {{ 'Saved from this assignment' if saved.status == 'saved_from_assignment' else 'Already in Sponsor Pipeline' }}
+            </span>
+          </span>
+        </div>
+        {% else %}
         <label class="d-flex gap-3 align-items-start">
           <input
             class="form-check-input mt-1"
@@ -51,6 +111,7 @@
             </span>
           </span>
         </label>
+        {% endif %}
         <p class="mt-3"><strong>Why it matches:</strong> {{ result.why_fits }}</p>
         <p><strong>Location or service area:</strong> {{ result.location }}</p>
         <p><strong>Suggested fit or ask:</strong> {{ result.recommended_ask }}</p>
@@ -63,19 +124,25 @@
           {{ source.description }}
         </p>
         {% endfor %}
+        {% if saved %}
+        <a class="btn btn-outline-light mt-auto"
+          href="{{ url_for('opportunity_detail', opportunity_id=saved.opportunity_id) }}">
+          Open Opportunity
+        </a>
+        {% endif %}
       </article>
     </div>
     {% endfor %}
   </div>
   <div class="d-flex flex-wrap gap-2 mt-4">
     <button class="btn btn-gold" type="submit" name="action" value="save_selected">
-      Save Selected to Pipeline
+      Save Selected to Sponsor Pipeline
     </button>
     <button class="btn btn-dark" type="submit" name="action" value="save_all">
-      Save All to Pipeline
+      Save All to Sponsor Pipeline
     </button>
-    <button class="btn btn-outline-danger" type="submit" name="action" value="reject_all">
-      Reject All
+    <button class="btn btn-outline-light" type="submit" name="action" value="reject_all">
+      Leave Results Unchanged
     </button>
   </div>
 </form>
@@ -94,7 +161,26 @@
 {% else %}
 <div class="empty-state">
   <h2>No qualified results were returned.</h2>
-  <p>No prospects were saved. Try again or select another sponsorship asset.</p>
+  <p>No sponsors were saved. Try again or select another sponsorship asset.</p>
 </div>
+{% endif %}
+{% if assignment.status in ['ready', 'working'] %}
+<script>
+(() => {
+  const state = document.querySelector("[data-research-status-url]");
+  if (!state) return;
+  const check = async () => {
+    try {
+      const response = await fetch(state.dataset.researchStatusUrl, {
+        headers: {"Accept": "application/json"}, cache: "no-store"
+      });
+      const data = await response.json();
+      if (data.terminal) window.location.assign(data.refresh_url);
+      else window.setTimeout(check, 3000);
+    } catch (_) { window.setTimeout(check, 5000); }
+  };
+  window.setTimeout(check, 3000);
+})();
+</script>
 {% endif %}
 {% endblock %}

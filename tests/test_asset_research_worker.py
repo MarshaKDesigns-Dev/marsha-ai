@@ -259,9 +259,10 @@ def test_persisted_failure_details_render_on_results_page(monkeypatch):
     assert b"Public evidence could not be verified." in response.data
 
 
-def test_failed_asset_research_leaves_no_partial_prospects_or_opportunities(
+def test_asset_research_route_enqueues_without_running_ai(
     monkeypatch,
 ):
+    import services.research_assignments as assignment_service
     import services.sponsor_research as research_service
 
     organization = SimpleNamespace(id=11)
@@ -269,22 +270,13 @@ def test_failed_asset_research_leaves_no_partial_prospects_or_opportunities(
     asset = SimpleNamespace(id=33, name="Venue Partner")
     assignment = SimpleNamespace(
         id=44,
-        status="working",
+        status="ready",
         started_at=None,
         completed_at=None,
         result_count=0,
         results_json="[]",
         error_details=None,
     )
-    assignment_query = MagicMock()
-    assignment_query.filter_by.return_value.first.return_value = None
-    assignment_model = MagicMock(return_value=assignment)
-    assignment_model.query = assignment_query
-    prospect_query = MagicMock()
-    prospect_query.filter_by.return_value.all.return_value = []
-    opportunity_model = MagicMock()
-    add = MagicMock()
-    commit = MagicMock()
     monkeypatch.setattr(
         app_module, "get_active_organization", lambda: organization
     )
@@ -294,48 +286,31 @@ def test_failed_asset_research_leaves_no_partial_prospects_or_opportunities(
     monkeypatch.setattr(
         app_module, "_approved_research_asset", lambda *args: asset
     )
-    monkeypatch.setattr(
-        app_module,
-        "get_sponsorship_intelligence",
-        lambda *args: SimpleNamespace(sponsor_eligibility=eligibility()),
-    )
-    monkeypatch.setattr(app_module, "ResearchAssignment", assignment_model)
-    monkeypatch.setattr(
-        app_module,
-        "SponsorProspect",
-        SimpleNamespace(query=prospect_query),
-    )
-    monkeypatch.setattr(app_module, "Opportunity", opportunity_model)
-    monkeypatch.setattr(app_module.db.session, "add", add)
-    monkeypatch.setattr(app_module.db.session, "commit", commit)
+    enqueue = MagicMock(return_value=(assignment, True))
+    monkeypatch.setattr(assignment_service, "enqueue_assignment", enqueue)
+    research = MagicMock()
     monkeypatch.setattr(
         research_service,
         "research_sponsorship_asset",
-        MagicMock(
-            side_effect=NoCredibleProspectsError(
-                "Public evidence could not be verified.",
-                reason_code="web_evidence_not_returned",
-            )
-        ),
+        research,
     )
 
     response = app_module.app.test_client().post("/research/assets/33")
 
     assert response.status_code == 302
     assert response.location.endswith("/research/assignments/44")
-    assert assignment.status == "needs_attention"
+    assert assignment.status == "ready"
     assert assignment.result_count == 0
     assert assignment.results_json == "[]"
-    assert assignment.error_details == "Public evidence could not be verified."
-    add.assert_called_once_with(assignment)
-    opportunity_model.assert_not_called()
-    commit.assert_called()
+    assert assignment.error_details is None
+    enqueue.assert_called_once_with(organization, initiative, asset)
+    research.assert_not_called()
 
 
 def test_duplicate_result_selection_creates_one_asset_scoped_opportunity(
     monkeypatch,
 ):
-    import services.sponsor_prospect_persistence as persistence_service
+    import services.research_selection_persistence as selection_service
     import services.sponsor_research as research_service
 
     organization = SimpleNamespace(id=11)
@@ -389,11 +364,10 @@ def test_duplicate_result_selection_creates_one_asset_scoped_opportunity(
         "model_validate",
         MagicMock(return_value=SimpleNamespace()),
     )
-    monkeypatch.setattr(
-        persistence_service,
-        "persist_sponsor_prospects",
-        MagicMock(return_value=[prospect]),
+    save = MagicMock(
+        return_value=selection_service.ResearchSelectionResult(1, 0)
     )
+    monkeypatch.setattr(selection_service, "save_research_selections", save)
 
     response = app_module.app.test_client().post(
         "/research/assignments/44/review",
@@ -401,30 +375,8 @@ def test_duplicate_result_selection_creates_one_asset_scoped_opportunity(
     )
 
     assert response.status_code == 302
-    opportunity_model.assert_called_once_with(
-        organization_id=11,
-        initiative_id=22,
-        sponsorship_asset_id=33,
-        sponsor_prospect_id=55,
-        parent_prospect="Venue Co",
-        recommended_target="Venue Co",
-        category="Venue Partner",
-        score=82,
-        contact_name="Jordan Lee",
-        title="Partnerships Director",
-        department="Community Partnerships",
-        email="jordan@example.com",
-        phone="919-555-0100",
-        contact_url="https://example.com/contact",
-        why_this_contact=(
-            "Public business contact information found during sponsor research."
-        ),
-        confidence="high",
-        verified_date="2026-07-27",
-        sources_json="[]",
-        stage="Research Approved",
-    )
-    add.assert_called_once_with(created_opportunity)
+    assert response.location.endswith("/pipeline?new_sponsors=1")
+    save.assert_called_once()
 
 
 def test_pipeline_queries_only_active_asset_scoped_opportunities(monkeypatch):
@@ -467,12 +419,15 @@ def test_research_templates_require_explicit_review_controls():
     )[0]
 
     assert "Which" in landing
-    assert "sponsorship opportunity would you like me to research first?" in landing
+    assert "Sponsor Opportunity would you like me to research first?" in landing
     assert "Research Worker is working" in landing
     assert "button.disabled = true" in landing
-    assert "Save Selected to Pipeline" in results
-    assert "Save All to Pipeline" in results
-    assert "Reject All" in results
+    assert "Save Selected to Sponsor Pipeline" in results
+    assert "Save All to Sponsor Pipeline" in results
+    assert "Leave Results Unchanged" in results
+    assert "Saved from this assignment" in results
+    assert "Already in Sponsor Pipeline" in results
+    assert "Open Opportunity" in results
     assert "Research more for this asset" in results
     assert "Choose another asset" in results
     assert "assignment.error_details" in results

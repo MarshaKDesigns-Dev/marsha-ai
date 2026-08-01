@@ -60,6 +60,7 @@ def persist_sponsor_prospects(
     *,
     session: Session | None = None,
     sponsorship_asset: Any | None = None,
+    commit: bool = True,
 ) -> list[SponsorProspect]:
     """Upsert validated prospects in one transaction without deleting prior data."""
 
@@ -178,7 +179,10 @@ def persist_sponsor_prospects(
             record.is_active = True
             saved.append(record)
 
-        database_session.commit()
+        if commit:
+            database_session.commit()
+        else:
+            database_session.flush()
         return saved
     except SponsorProspectPersistenceError:
         database_session.rollback()

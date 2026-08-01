@@ -295,9 +295,9 @@ Never commit `.env` or production credentials to Git.
 ## Run the Application Locally
 
 Use the repository startup script. It protects unrelated port-5000 listeners,
-stops confirmed repository-owned Flask parent, child, or orphan processes,
-applies the additive local migrations, disables Flask auto-reload, starts one
-local listener, and verifies port ownership.
+stops confirmed repository-owned web and worker processes, applies the
+additive local migrations, disables Flask auto-reload, starts Flask and the
+sponsorship intelligence worker, and verifies port ownership.
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\scripts\start_local.ps1
@@ -326,6 +326,27 @@ Do not use `python app.py` for routine local testing. That entry point enables
 Flask debug mode and its reloader, which can leave a child process serving
 stale Python code after the parent is stopped. Production Gunicorn startup is
 unchanged.
+
+Strategy generation, Sponsor Research assignments, and Contact Discovery run
+outside web requests in one separately managed background process:
+
+```text
+python -m services.sponsorship_intelligence_worker
+```
+
+The local startup script launches this worker automatically. Railway should
+run the same command in its separately configured worker service, using the
+same database and environment as the web service.
+
+The dispatcher uses round-robin selection across Strategy, Sponsor Research,
+Contact Discovery, Outreach generation, and Follow-Up generation so a continuously busy queue cannot
+starve another work type. Apply `migrate_durable_research_assignments.py` and
+`migrate_outreach_generation_jobs.py` before deploying this version.
+Also apply `migrate_follow_up_generation_jobs.py`.
+
+`BACKGROUND_WORKFLOW_BUDGET_SECONDS` configures the complete sequential
+strategy-generation budget and defaults to 600 seconds. Individual OpenAI
+request timeouts remain capped separately.
 
 ---
 

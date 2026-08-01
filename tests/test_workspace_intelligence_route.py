@@ -8,10 +8,11 @@ from services.sponsor_eligibility_gate import (
 )
 
 
-def test_generation_route_runs_inline_and_redirects_to_strategy(monkeypatch):
+def test_generation_route_enqueues_without_synchronous_generation(monkeypatch):
     organization = SimpleNamespace(id=1)
     initiative = SimpleNamespace(id=10, organization_id=1)
     calls = []
+    job = SimpleNamespace(status="pending", worker_id=None, attempt_count=0)
 
     monkeypatch.setattr(
         app_module,
@@ -24,14 +25,20 @@ def test_generation_route_runs_inline_and_redirects_to_strategy(monkeypatch):
         lambda: initiative,
     )
 
-    def generate(org, init, *, regenerate=False):
+    def enqueue(org, init, *, regenerate=False):
         calls.append((org.id, init.id, regenerate))
-        return SimpleNamespace(success=True)
+        return job, True
 
     monkeypatch.setattr(
         app_module,
-        "run_inline_workspace_intelligence_generation",
-        generate,
+        "enqueue_workspace_intelligence_generation",
+        enqueue,
+    )
+    synchronous_generation = MagicMock()
+    monkeypatch.setattr(
+        app_module,
+        "run_workspace_intelligence_generation",
+        synchronous_generation,
     )
 
     with app_module.app.test_request_context(
@@ -44,7 +51,11 @@ def test_generation_route_runs_inline_and_redirects_to_strategy(monkeypatch):
 
     assert calls == [(1, 10, False)]
     assert response.status_code == 302
-    assert response.location.endswith("/workspace/strategy")
+    assert response.location.endswith("/workspace")
+    synchronous_generation.assert_not_called()
+    assert job.status == "pending"
+    assert job.worker_id is None
+    assert job.attempt_count == 0
 
 
 def test_generation_route_passes_explicit_regenerate(monkeypatch):
@@ -63,14 +74,14 @@ def test_generation_route_passes_explicit_regenerate(monkeypatch):
         lambda: initiative,
     )
 
-    def generate(org, init, *, regenerate=False):
+    def enqueue(org, init, *, regenerate=False):
         calls.append((org.id, init.id, regenerate))
-        return SimpleNamespace(success=True)
+        return SimpleNamespace(status="pending"), True
 
     monkeypatch.setattr(
         app_module,
-        "run_inline_workspace_intelligence_generation",
-        generate,
+        "enqueue_workspace_intelligence_generation",
+        enqueue,
     )
 
     with app_module.app.test_request_context(
@@ -99,8 +110,11 @@ def test_duplicate_generation_route_flashes_already_in_progress(monkeypatch):
     )
     monkeypatch.setattr(
         app_module,
-        "run_inline_workspace_intelligence_generation",
-        lambda *args, **kwargs: None,
+        "enqueue_workspace_intelligence_generation",
+        lambda *args, **kwargs: (
+            SimpleNamespace(status="processing"),
+            False,
+        ),
     )
 
     with app_module.app.test_request_context(
@@ -116,7 +130,7 @@ def test_duplicate_generation_route_flashes_already_in_progress(monkeypatch):
     assert flashed == [
         (
             "warning",
-            "Sponsorship intelligence generation is already in progress.",
+                "Strategy generation is already in progress.",
         )
     ]
 
@@ -138,7 +152,7 @@ def test_generation_route_rejects_ownership_mismatch(monkeypatch):
     )
     monkeypatch.setattr(
         app_module,
-        "run_inline_workspace_intelligence_generation",
+        "enqueue_workspace_intelligence_generation",
         lambda *args, **kwargs: enqueue_calls.append(args),
     )
 
@@ -174,7 +188,10 @@ def test_generation_started_message_renders_after_redirect(monkeypatch):
         fundraising_target="Not set",
         deadline=None,
     )
-    started_message = "Your strategy is ready for review."
+    started_message = (
+        "Your Strategy Worker has started. You can leave this page while "
+        "the strategy is prepared."
+    )
 
     monkeypatch.setattr(
         app_module,
@@ -188,8 +205,11 @@ def test_generation_started_message_renders_after_redirect(monkeypatch):
     )
     monkeypatch.setattr(
         app_module,
-        "run_inline_workspace_intelligence_generation",
-        lambda *args, **kwargs: SimpleNamespace(success=True),
+        "enqueue_workspace_intelligence_generation",
+        lambda *args, **kwargs: (
+            SimpleNamespace(status="pending"),
+            True,
+        ),
     )
     monkeypatch.setattr(
         app_module,
@@ -254,7 +274,7 @@ def test_generation_started_message_renders_after_redirect(monkeypatch):
     response = client.post("/workspace/generate-intelligence")
 
     assert response.status_code == 302
-    assert response.location.endswith("/workspace/strategy")
+    assert response.location.endswith("/workspace")
     with client.session_transaction() as browser_session:
         assert ("success", started_message) in browser_session["_flashes"]
 
@@ -464,15 +484,15 @@ def test_workspace_template_is_dashboard_without_long_form_reports():
         encoding="utf-8",
     ).read()
 
-    assert "MARSHA AI OFFICE" in template
+    assert "SPONSORSHIP COORDINATOR" in template
     assert "dashboard.top_priority.worker_name" in template
     assert "dashboard.top_priority.worker_icon" in template
-    assert "Your Team’s Status" in template
-    assert "dashboard.workers" in template
+    assert "What Marsha AI is doing" in template
+    assert "dashboard.ai_team" in template
     assert "setInterval(checkStatus, 5000)" in template
     assert "manual-status-refresh" in template
     assert "WORKFLOW" in template
-    assert "ACTIVE INITIATIVE" in template
+    assert "Active initiative:" in template
     assert "RECENT ACTIVITY" in template
     assert "ORGANIZATION ANALYSIS" not in template
     assert "SPONSORSHIP STRATEGY" not in template
@@ -483,9 +503,9 @@ def test_workspace_template_is_dashboard_without_long_form_reports():
     assert "categories" not in template
     assert "{% for asset" not in template
 
-    assert "dashboard-grid" in template
-    assert "dashboard-main-column" in template
-    assert "dashboard-side-column" in template
+    assert "mission-control" in template
+    assert "mission-worker-grid" in template
+    assert "mission-detail-grid" in template
 
 
 @pytest.mark.parametrize(
@@ -567,5 +587,5 @@ def test_allowed_category_research_does_not_use_placeholder_prospects(
     response = app_module.app.test_client().get("/prospects/healthcare")
 
     assert response.status_code == 200
-    assert b"No credible prospects saved yet." in response.data
+    assert b"No credible sponsors saved yet." in response.data
     assert b"Duke Health" not in response.data

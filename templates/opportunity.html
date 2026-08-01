@@ -1,8 +1,210 @@
 {% extends "base.html" %}
 {% from "_copy_button.html" import copy_button %}
+{% from "_workflow_guidance.html" import workflow_guidance %}
+{% from "_opportunity_progress.html" import render_opportunity_progress %}
 {% block content %}
 
-<a href="{{ url_for('show_pipeline') }}">← Back to pipeline</a>
+<a href="{{ url_for('show_pipeline') }}">← Back to Sponsor Pipeline</a>
+
+{% set has_contact = opp.email or opp.phone or opp.contact_url %}
+{% set contact_working = contact_research_job and contact_research_job.status in ['queued', 'processing'] %}
+{% set outreach_active = outreach_generation_job and outreach_generation_job.status in ['queued', 'working'] %}
+{% set follow_up_active = follow_up_generation_job and follow_up_generation_job.status in ['queued', 'working'] %}
+{% if follow_up_active %}
+  {{ workflow_guidance(
+    'Your Follow-Up Worker is queued' if follow_up_generation_job.status == 'queued' else 'Your Follow-Up Worker is working',
+    'Your request to prepare the follow-up was accepted.',
+    'Marsha AI is preparing a follow-up based on the original outreach, delivery history, opportunity stage, and scheduled follow-up.',
+    'You can leave this page and return later.', status_type='info'
+  ) }}
+  <div data-follow-up-status-url="{{ url_for('follow_up_generation_status', opportunity_id=opp.id) }}" role="status">Working</div>
+{% elif follow_up_generation_job and follow_up_generation_job.status == 'failed' and not opp.follow_up_message %}
+  {{ workflow_guidance(
+    'Follow-Up generation needs attention',
+    'The Follow-Up Worker could not prepare the draft.',
+    'Your original outreach, delivery history, and Opportunity data were preserved.',
+    'Retry Follow-Up Generation when ready.',
+    'Retry Follow-Up Generation', url_for('generate_follow_up', opportunity_id=opp.id),
+    'btn-primary', 'warning', 'POST'
+  ) }}
+{% elif outreach_active %}
+  {{ workflow_guidance(
+    'Your Outreach Worker is queued' if outreach_generation_job.status == 'queued' else 'Your Outreach Worker is working',
+    'Your request to prepare Sponsor Outreach was accepted.',
+    'Marsha AI is preparing a sponsor-specific outreach message using the approved opportunity, verified contact route, sponsorship ask, and organization information.',
+    'You can leave this page and return later.',
+    status_type='info'
+  ) }}
+  <div data-outreach-status-url="{{ url_for('outreach_generation_status', opportunity_id=opp.id) }}" role="status">Working</div>
+{% elif outreach_generation_job and outreach_generation_job.status == 'failed' and not opp.outreach %}
+  {{ workflow_guidance(
+    'Outreach generation needs attention',
+    'The Outreach Worker could not prepare the message.',
+    'Your Sponsor Opportunity and contact data were preserved.',
+    'Retry Outreach Generation when you are ready.',
+    'Retry Outreach Generation',
+    url_for('generate_opportunity_outreach', opportunity_id=opp.id),
+    'btn-primary', 'warning', 'POST'
+  ) }}
+{% elif follow_up_due and not opp.follow_up_message %}
+  {{ workflow_guidance(
+    'Sponsor follow-up is due',
+    'Initial outreach to ' ~ opp.recommended_target ~ ' was completed.',
+    'The scheduled follow-up date has arrived.',
+    'Ask the Follow-Up Worker to prepare the next message.',
+    'Generate Follow-Up',
+    url_for('generate_follow_up', opportunity_id=opp.id),
+    'btn-primary',
+    'warning',
+    'POST'
+  ) }}
+{% elif follow_up_due and not opp.follow_up_reviewed_at %}
+  {{ workflow_guidance(
+    'Follow-up is ready for review',
+    'The Follow-Up Worker prepared a draft for ' ~ opp.recommended_target ~ '.',
+    'The draft is waiting for Follow-Up Review.',
+    'Review the follow-up before sending it.',
+    'Review Follow-Up',
+    '#follow-up-workflow',
+    'btn-primary',
+    'info'
+  ) }}
+{% elif follow_up_due %}
+  {{ workflow_guidance(
+    'Reviewed follow-up is ready',
+    'Follow-Up Review is complete.',
+    'The improved follow-up is ready for delivery.',
+    'Send it through the verified channel or record the completed activity.',
+    'Complete Follow-Up',
+    '#follow-up-workflow',
+    'btn-primary',
+    'success'
+  ) }}
+{% elif not has_contact and contact_working %}
+  {{ workflow_guidance(
+    'Contact research is underway',
+    opp.recommended_target ~ ' is saved as a Sponsor Opportunity.',
+    'The Contact Research Worker is checking public sources for a reliable route.',
+    'Wait for contact research to finish, then prepare personalized outreach.',
+    status_type='info'
+  ) }}
+{% elif not has_contact and contact_research_job and
+  contact_research_job.status == 'failed' %}
+  {{ workflow_guidance(
+    'Contact research needs attention',
+    'The Contact Research Worker could not find a usable contact route.',
+    'Your Sponsor Opportunity and existing research were preserved.',
+    'Retry Contact Research when ready.',
+    'Retry Contact Research',
+    url_for('enqueue_contact_research', opportunity_id=opp.id),
+    'btn-primary',
+    'warning',
+    'POST'
+  ) }}
+{% elif not has_contact %}
+  {{ workflow_guidance(
+    'Contact research is needed',
+    opp.recommended_target ~ ' is saved as a researched Sponsor Opportunity.',
+    'No reliable contact route is attached to this Sponsor Opportunity yet.',
+    'Ask the Contact Research Worker to find the best public business contact.',
+    'Research Contact',
+    url_for('enqueue_contact_research', opportunity_id=opp.id),
+    'btn-primary',
+    'warning',
+    'POST'
+  ) }}
+{% elif opp.stage == 'Research Approved' and not opp.outreach and not opp.reviewed_message %}
+  {{ workflow_guidance(
+    'This sponsor is ready for outreach',
+    'Sponsor research and contact discovery are complete.',
+    'A verified contact route is ready for the Outreach Worker.',
+    'Generate personalized Sponsor Outreach for review.',
+    'Generate Outreach',
+    url_for('generate_opportunity_outreach', opportunity_id=opp.id),
+    'btn-primary',
+    'success',
+    'POST'
+  ) }}
+{% elif opp.stage == 'Ready to Send' and not opp.message_reviewed_at %}
+  {{ workflow_guidance(
+    'Review Outreach',
+    'The Outreach Worker generated a personalized draft.',
+    'The outreach is waiting for Outreach Review.',
+    'Review the outreach before approving it.',
+    'Review Outreach',
+    '#outreach-workflow',
+    'btn-primary',
+    'info'
+  ) }}
+{% elif opp.stage == 'Ready to Send' and not opp.message_approved_at %}
+  {{ workflow_guidance(
+    'Approve Outreach',
+    'The Outreach Review Worker improved and checked the outreach.',
+    'The reviewed version is waiting for your approval.',
+    'Review the final outreach and approve it before sending.',
+    'Approve Outreach',
+    '#outreach-workflow',
+    'btn-primary',
+    'success'
+  ) }}
+{% elif opp.stage == 'Ready to Send' %}
+  {{ workflow_guidance(
+    'Approved outreach is ready to send',
+    'The reviewed outreach was approved.',
+    'The outreach is ready through the verified contact channel.',
+    'Send the outreach through the verified contact channel.',
+    'Send Outreach',
+    '#outreach-workflow',
+    'btn-gold',
+    'success'
+  ) }}
+{% elif opp.stage == 'Sent' and opp.follow_up_completed_at %}
+  {{ workflow_guidance(
+    'Follow-Up Complete',
+    'The scheduled follow-up with ' ~ opp.recommended_target ~ ' was completed.',
+    'Your follow-up has been recorded.',
+    'Your follow-up has been recorded. Continue building your Sponsor Pipeline.',
+    'Research More Sponsors',
+    url_for('research_worker'),
+    'btn-primary',
+    'success'
+  ) }}
+{% elif opp.stage == 'Sent' %}
+  {{ workflow_guidance(
+    'Outreach Delivered',
+    'Outreach to ' ~ opp.recommended_target ~ ' was recorded as sent.',
+    'Your outreach has been recorded successfully.',
+    'Your outreach has been recorded successfully. Follow-up scheduled for '
+      ~ (opp.follow_up_date|string) ~ '.',
+    'Research More Sponsors',
+    url_for('research_worker'),
+    'btn-primary',
+    'success'
+  ) }}
+{% else %}
+  {{ workflow_guidance(
+    'Sponsor Opportunity status is up to date',
+    opp.recommended_target ~ ' is saved in your Sponsor Pipeline.',
+    'Marsha AI is tracking this Sponsor Opportunity at the '
+      ~ opportunity_stage_label(opp) ~ ' stage.',
+    'Review the Sponsor Opportunity and continue the next available action.',
+    'Return to Sponsor Pipeline',
+    url_for('show_pipeline'),
+    'btn-primary',
+    'info'
+  ) }}
+{% endif %}
+{% if outreach_active %}
+<script>
+(() => { const node=document.querySelector('[data-outreach-status-url]');
+  const check=async()=>{try{const r=await fetch(node.dataset.outreachStatusUrl,{cache:'no-store'});const d=await r.json();if(d.terminal)location.assign(d.refresh_url);else setTimeout(check,3000)}catch(_){setTimeout(check,5000)}};setTimeout(check,3000);})();
+</script>
+{% endif %}
+{% if follow_up_active %}
+<script>
+(() => { const node=document.querySelector('[data-follow-up-status-url]');const check=async()=>{try{const r=await fetch(node.dataset.followUpStatusUrl,{cache:'no-store'});const d=await r.json();if(d.terminal)location.assign(d.refresh_url);else setTimeout(check,3000)}catch(_){setTimeout(check,5000)}};setTimeout(check,3000);})();
+</script>
+{% endif %}
 
 {% if test_mode %} {% if opp.outreach_channel == "phone" %}
 <div class="alert alert-warning mt-4">
@@ -16,18 +218,19 @@
 </div>
 {% else %}
 <div class="alert alert-warning mt-4">
-  <strong>TEST MODE</strong> — No message will be sent to the prospect. Actual
+  <strong>TEST MODE</strong> — No outreach will be sent to the sponsor. Actual
   delivery is redirected to <strong>{{ test_email }}</strong>.
 </div>
 {% endif %} {% else %}
 <div class="alert alert-danger mt-4">
-  <strong>LIVE MODE</strong> — Messages may be sent to real prospect contacts.
+  <strong>LIVE MODE</strong> — Outreach may be sent to real sponsor contacts.
 </div>
 {% endif %}
 
-<div class="eyebrow mt-4">OPPORTUNITY RECORD</div>
+<div class="eyebrow mt-4">SPONSOR OPPORTUNITY</div>
 <h1>{{ opp.recommended_target }}</h1>
-<p>Parent Prospect: {{ opp.parent_prospect }}</p>
+<p>Sponsor Organization: {{ opp.parent_prospect }}</p>
+{{ render_opportunity_progress(opportunity_progress) }}
 
 <div class="row g-4">
   <div class="col-lg-5">
@@ -39,7 +242,7 @@
       <div class="alert alert-warning">
         <strong>Contact Research Needed</strong>
         {% if contact_research_job %}
-        <br />{{ contact_research_job.status|replace('_', ' ')|title }}
+        <br />{{ contact_research_job.status|workflow_label }}
         {% endif %}
       </div>
       <form
@@ -63,7 +266,7 @@
       </p>
 
       <p>
-        <strong>Prospect Email:</strong> {{ opp.email or 'Not available' }}<br />
+        <strong>Sponsor Email:</strong> {{ opp.email or 'Not available' }}<br />
         <strong>Phone:</strong> {{ opp.phone or 'Not available' }}
       </p>
 
@@ -87,7 +290,7 @@
     </div>
 
     <div class="card p-4">
-      <h2>Opportunity Status</h2>
+      <h2>Sponsor Opportunity Status</h2>
 
       <form
         method="post"
@@ -102,7 +305,7 @@
         {% else %}
           <option value="{{ stage }}">
         {% endif %}
-            {{ stage }}
+            {{ stage|workflow_label }}
           </option>
           {% endfor %}
         </select>
@@ -122,7 +325,7 @@
         >
 
         <button class="btn btn-outline-dark w-100">
-          Save Opportunity Update
+          Save Sponsor Opportunity
         </button>
         {{ copy_button('opportunity-notes', 'Copy notes') }}
       </form>
@@ -130,22 +333,22 @@
   </div>
 
   <div class="col-lg-7">
-    <div class="card p-4 mb-4">
+    <div class="card p-4 mb-4" id="outreach-workflow">
       <div class="eyebrow">OUTREACH EXECUTION WORKER</div>
-      <h2>{{ opp.stage }}</h2>
+      <h2>{{ opportunity_stage_label(opp) }}</h2>
 
       {% if opp.stage == 'Research Approved' and
       (opp.email or opp.phone or opp.contact_url) and
       not opp.outreach and not opp.reviewed_message %}
       <div class="action-card mb-3">
         <strong>Verified contact route ready.</strong><br />
-        Ask the Outreach Worker to prepare sponsor communication for review.
+        Ask the Outreach Worker to generate Sponsor Outreach for review.
       </div>
       <form
         method="post"
         action="{{ url_for('generate_opportunity_outreach', opportunity_id=opp.id) }}"
       >
-        <button class="btn btn-primary w-100">Generate Sponsor Outreach</button>
+        <button class="btn btn-primary w-100">Generate Outreach</button>
       </form>
       {% endif %}
 
@@ -153,12 +356,12 @@
       <div class="alert alert-success">
         {% if opp.outreach_channel == "phone" %}
         <strong>Call script reviewed.</strong>
-        This version has passed the Message Quality Review Worker. {% elif
+        This outreach has passed Outreach Review. {% elif
         opp.outreach_channel == "contact_form" %}
-        <strong>Contact-form message reviewed.</strong>
-        This version has passed the Message Quality Review Worker. {% else %}
-        <strong>Message reviewed.</strong>
-        This version has passed the Message Quality Review Worker. {% endif %}
+        <strong>Contact-form outreach reviewed.</strong>
+        This outreach has passed Outreach Review. {% else %}
+        <strong>Outreach reviewed.</strong>
+        This outreach has passed Outreach Review. {% endif %}
       </div>
 
       {% if review_notes %}
@@ -189,7 +392,7 @@
         class="mb-3"
       >
         <button class="btn btn-primary w-100">
-          Approve Message for Sending
+          Approve Outreach
         </button>
       </form>
       {% endif %}
@@ -200,24 +403,24 @@
         class="mb-3"
       >
         <button class="btn btn-outline-dark w-100">
-          Re-review Message
+          Review Outreach Again
         </button>
       </form>
 
       {% else %} {% if opp.outreach_channel == "phone" %}
       <div class="alert alert-warning">
         <strong>Call script has not been quality reviewed yet.</strong>
-        Review it before contacting the prospect.
+        Review it before contacting the sponsor.
       </div>
       {% elif opp.outreach_channel == "contact_form" %}
       <div class="alert alert-warning">
-        <strong>Contact-form message has not been quality reviewed yet.</strong>
+        <strong>Contact-form outreach has not been reviewed yet.</strong>
         Review it before submitting the form.
       </div>
       {% else %}
       <div class="alert alert-warning">
-        <strong>Message has not been quality reviewed yet.</strong>
-        Review it before sending a real prospect message.
+        <strong>Outreach has not been reviewed yet.</strong>
+        Review it before sending outreach to a real sponsor.
       </div>
       {% endif %} {% endif %} {% if opp.outreach_channel == "phone" %}
       <div class="action-card mb-3">
@@ -250,18 +453,18 @@
 
         {% if not opp.message_reviewed_at %}
         <button class="btn btn-outline-dark w-100">
-          Run Call Script Quality Review
+          Review Outreach
         </button>
         {% endif %}
       </form>
-      {{ copy_button('outreach-message', 'Copy call script') }}
+      {{ copy_button('outreach-message', 'Copy outreach') }}
 
       {% if opp.message_approved_at %}
       <form
         method="post"
         action="{{ url_for('mark_sent', opportunity_id=opp.id) }}"
       >
-        <button class="btn btn-gold w-100">I Completed This Call</button>
+        <button class="btn btn-gold w-100">Send Outreach</button>
       </form>
       {% endif %} {% elif opp.outreach_channel == "contact_form" %}
       <div class="action-card mb-3">
@@ -299,18 +502,18 @@
 
         {% if not opp.message_reviewed_at %}
         <button class="btn btn-outline-dark w-100">
-          Run Contact Form Quality Review
+          Review Outreach
         </button>
         {% endif %}
       </form>
-      {{ copy_button('outreach-message', 'Copy message') }}
+      {{ copy_button('outreach-message', 'Copy outreach') }}
 
       {% if opp.message_approved_at %}
       <form
         method="post"
         action="{{ url_for('mark_sent', opportunity_id=opp.id) }}"
       >
-        <button class="btn btn-gold w-100">I Submitted This Form</button>
+        <button class="btn btn-gold w-100">Send Outreach</button>
       </form>
       {% endif %} {% else %}
       <form
@@ -340,7 +543,7 @@
         />
 
         <label class="form-label fw-bold">
-          {% if opp.message_reviewed_at %} Reviewed Message {% else %} Message
+          {% if opp.message_reviewed_at %} Reviewed Outreach {% else %} Outreach
           {% endif %}
         </label>
 
@@ -357,13 +560,13 @@
 
         {% if not opp.message_reviewed_at %}
         <button class="btn btn-outline-dark w-100">
-          Run Message Quality Review
+          Review Outreach
         </button>
         {% endif %}
       </form>
       <div class="d-flex gap-2 mb-3">
         {{ copy_button('outreach-subject', 'Copy subject') }}
-        {{ copy_button('outreach-message', 'Copy message') }}
+        {{ copy_button('outreach-message', 'Copy outreach') }}
       </div>
 
       {% if opp.message_approved_at %}
@@ -372,8 +575,7 @@
         action="{{ url_for('send_email', opportunity_id=opp.id) }}"
       >
         <button class="btn btn-gold w-100 mb-3">
-          {% if test_mode %} Send Test Email {% else %} Send Live Email {% endif
-          %}
+          Send Outreach
         </button>
       </form>
 
@@ -382,7 +584,7 @@
         action="{{ url_for('mark_sent', opportunity_id=opp.id) }}"
       >
         <button class="btn btn-outline-dark w-100">
-          I Sent It Another Way
+          Record Outreach Sent
         </button>
       </form>
       {% endif %} {% endif %} {% else %}
@@ -411,7 +613,7 @@
     </div>
 
     {% if follow_up_due %}
-    <div class="card p-4">
+    <div class="card p-4" id="follow-up-workflow">
       <div class="eyebrow">FOLLOW-UP WORKER</div>
       <h2>Follow-Up Due</h2>
 
@@ -436,7 +638,7 @@
       {% else %} {% if opp.follow_up_reviewed_at %}
       <div class="alert alert-success">
         <strong>Follow-up reviewed.</strong>
-        This version has passed the Message Quality Review Worker.
+        This follow-up has passed Follow-Up Review.
       </div>
 
       {% if follow_up_review_notes %}
@@ -455,8 +657,8 @@
       </div>
       {% endif %} {% else %}
       <div class="alert alert-warning">
-        <strong>Follow-up has not been quality reviewed yet.</strong>
-        Review it before completing the follow-up.
+        <strong>Follow-up has not been reviewed yet.</strong>
+        Review it before sending the follow-up.
       </div>
       {% endif %}
 
@@ -487,7 +689,7 @@
           {% if opp.follow_up_reviewed_at %} Reviewed Follow-Up {% elif
           opp.outreach_channel == "phone" %} Follow-Up Call Script {% elif
           opp.outreach_channel == "contact_form" %} Follow-Up Contact Form
-          Message {% else %} Follow-Up Message {% endif %}
+          Outreach {% else %} Follow-Up {% endif %}
         </label>
 
         <textarea
@@ -503,7 +705,7 @@
 
         {% if not opp.follow_up_reviewed_at %}
         <button class="btn btn-outline-dark w-100">
-          Run Follow-Up Quality Review
+          Review Follow-Up
         </button>
         {% endif %}
       </form>
@@ -543,8 +745,7 @@
         class="mb-3"
       >
         <button class="btn btn-gold w-100">
-          {% if test_mode %} Send Test Follow-Up Email
-          {% else %} Send Live Follow-Up Email {% endif %}
+          Send Follow-Up
         </button>
       </form>
 
@@ -553,7 +754,7 @@
         action="{{ url_for('complete_follow_up', opportunity_id=opp.id) }}"
       >
         <button class="btn btn-outline-dark w-100">
-          I Sent It Another Way
+          Record Follow-Up Sent
         </button>
       </form>
       {% else %}
@@ -563,9 +764,9 @@
       >
         <button class="btn btn-gold w-100">
           {% if opp.outreach_channel == "phone" %}
-          I Completed the Follow-Up Call
+          Send Follow-Up
           {% else %}
-          I Submitted the Follow-Up Form
+          Send Follow-Up
           {% endif %}
         </button>
       </form>

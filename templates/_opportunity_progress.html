@@ -1,0 +1,20 @@
+{% macro render_opportunity_progress(steps) %}
+  <nav class="opportunity-progress" aria-label="Sponsor Opportunity progress">
+    <ol>
+      {% for step in steps %}
+        <li class="opportunity-progress-step state-{{ step.state }}">
+          <span class="progress-marker" aria-hidden="true">
+            {{ '✓' if step.state == 'complete' else loop.index }}
+          </span>
+          <span>
+            <strong>{{ step.label }}</strong>
+            <small>{{ step.state|title }}</small>
+          </span>
+          {% if step.state == 'current' %}
+            <span class="visually-hidden">Current Sponsor Opportunity stage</span>
+          {% endif %}
+        </li>
+      {% endfor %}
+    </ol>
+  </nav>
+{% endmacro %}

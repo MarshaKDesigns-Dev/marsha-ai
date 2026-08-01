@@ -4,8 +4,8 @@
 <div class="eyebrow mt-4">RESEARCH WORKER</div>
 <h1>Choose a sponsorship opportunity</h1>
 <p class="lead">
-  I’ve reviewed your sponsorship strategy and approved assets. Which
-  sponsorship opportunity would you like me to research first?
+  I’ve reviewed your Sponsorship Strategy and approved assets. Which
+  Sponsor Opportunity would you like me to research first?
 </p>
 
 {% if assets %}
@@ -19,8 +19,12 @@
         <h2 class="h4">{{ asset.name }}</h2>
         {% if saved_count %}
         <span class="badge text-bg-success">{{ saved_count }} saved</span>
+        {% elif assignment and assignment.status in ['ready', 'working'] %}
+        <span class="badge text-bg-primary">
+          {{ 'Queued' if assignment.status == 'ready' else 'Working' }}
+        </span>
         {% elif assignment and assignment.status == 'completed' %}
-        <span class="badge text-bg-primary">Research completed</span>
+        <span class="badge text-bg-primary">Research Complete</span>
         {% elif assignment and assignment.status == 'needs_attention' %}
         <span class="badge text-bg-warning">Needs attention</span>
         {% else %}
@@ -31,13 +35,28 @@
       {% if asset.sponsor_value or asset.value %}
       <p><strong>Sponsor value:</strong> {{ asset.sponsor_value or asset.value }}</p>
       {% endif %}
+      {% if assignment and assignment.status in ['ready', 'working'] %}
+      <a class="btn btn-outline-light mt-auto"
+        href="{{ url_for('research_assignment', assignment_id=assignment.id) }}">
+        View Research Progress
+      </a>
+      <p class="mt-3 mb-0" role="status">
+        Research Worker is {{ 'queued' if assignment.status == 'ready' else 'working' }}.
+        You do not need to start this assignment again.
+      </p>
+      {% elif assignment and assignment.status == 'completed' %}
+      <a class="btn btn-gold mt-auto"
+        href="{{ url_for('research_assignment', assignment_id=assignment.id) }}">
+        Review Research Results
+      </a>
+      {% else %}
       <form
         method="post"
         action="{{ url_for('start_asset_research', asset_id=asset.id) }}"
         class="research-start-form mt-auto"
       >
         <button class="btn btn-gold" type="submit">
-          Research this opportunity
+          Research Sponsor Opportunity
         </button>
         <p class="research-progress mt-3 mb-0" hidden role="status">
           <span class="spinner-border spinner-border-sm" aria-hidden="true"></span>
@@ -45,6 +64,7 @@
           qualified organizations, evaluating evidence, and ranking matches.
         </p>
       </form>
+      {% endif %}
     </section>
   </div>
   {% endfor %}
@@ -57,6 +77,24 @@
     Review sponsorship assets
   </a>
 </div>
+{% endif %}
+
+{% if assignment_history %}
+<section class="card p-4 mt-4">
+  <div class="eyebrow">RESEARCH HISTORY</div>
+  <h2 class="h4">Previous research assignments</h2>
+  <div class="list-group list-group-flush">
+    {% for assignment in assignment_history %}
+    <a class="list-group-item list-group-item-action d-flex justify-content-between align-items-center"
+      href="{{ url_for('research_assignment', assignment_id=assignment.id) }}">
+      <span>{{ assignment_asset_names.get(assignment.sponsorship_asset_id, 'Sponsor Opportunity') }}</span>
+      <span class="badge text-bg-{{ 'success' if assignment.status == 'completed' else 'warning' if assignment.status == 'needs_attention' else 'primary' }}">
+        {{ 'Research Complete' if assignment.status == 'completed' else 'Needs attention' if assignment.status == 'needs_attention' else 'Working' if assignment.status == 'working' else 'Queued' }}
+      </span>
+    </a>
+    {% endfor %}
+  </div>
+</section>
 {% endif %}
 
 <script>

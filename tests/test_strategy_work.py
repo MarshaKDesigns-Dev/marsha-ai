@@ -85,7 +85,31 @@ def test_strategy_work_renders_generated_content(monkeypatch):
     assert "Financial Services" in html
     assert "Scholarship Partner" in html
     assert "Limited staff capacity" in html
-    assert "Approve Strategy and Continue" in html
+    assert "Approve Sponsorship Strategy" in html
+    assert "Edit Strategy Inputs" in html
+    assert "Rebuild Strategy" in html
+    assert 'name="regenerate" value="true"' in html
+
+
+def test_approved_strategy_remains_viewable_with_secondary_actions(monkeypatch):
+    approved_asset = SimpleNamespace(
+        name="Scholarship Partner",
+        description="Support participant access.",
+        sponsor_value="Visible community impact.",
+        approval_status="Approved",
+        approval_updated_at=object(),
+        is_active=True,
+    )
+    _patch_context(monkeypatch, assets=[approved_asset])
+
+    response = app_module.app.test_client().get("/workspace/strategy")
+    html = response.get_data(as_text=True)
+
+    assert response.status_code == 200
+    assert "Your Sponsorship Strategy" in html
+    assert "Edit Strategy Inputs" in html
+    assert "Rebuild Strategy" in html
+    assert html.count("Approve Sponsorship Strategy") == 0
 
 
 def test_strategy_approval_approves_assets_and_opens_research(monkeypatch):

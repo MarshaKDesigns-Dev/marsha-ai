@@ -1,0 +1,35 @@
+{% macro render_workflow_navigation(items, endpoint) %}
+  {% set endpoint_groups = {
+    'setup': ['setup', 'start'],
+    'strategy': ['strategy_meeting', 'strategy_work'],
+    'research': ['research_worker', 'research_assignment', 'research_results'],
+    'pipeline': ['show_pipeline', 'opportunity_detail']
+  } %}
+  <div class="workflow-navigation" aria-label="Sponsorship workflow">
+    {% for item in items %}
+      {% set page_active = endpoint in endpoint_groups[item.key] %}
+      {% if item.state == 'locked' %}
+        <span
+          class="sidebar-link workflow-nav-item state-locked"
+          aria-disabled="true"
+          title="{{ item.locked_reason }}"
+        >
+          <span class="nav-icon" aria-hidden="true">{{ item.icon }}</span>
+          <span class="workflow-nav-label">{{ item.label }}</span>
+          <span class="workflow-nav-state">Locked</span>
+          <span class="visually-hidden">{{ item.locked_reason }}</span>
+        </span>
+      {% else %}
+        <a
+          class="sidebar-link workflow-nav-item state-{{ item.state }} {{ 'page-active' if page_active else '' }}"
+          href="{{ url_for(item.endpoint) }}"
+          {% if page_active %}aria-current="page"{% endif %}
+        >
+          <span class="nav-icon" aria-hidden="true">{{ item.icon }}</span>
+          <span class="workflow-nav-label">{{ item.label }}</span>
+          <span class="workflow-nav-state">{{ item.state|title }}</span>
+        </a>
+      {% endif %}
+    {% endfor %}
+  </div>
+{% endmacro %}

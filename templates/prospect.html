@@ -2,9 +2,9 @@
 {% from "_copy_button.html" import copy_button %}
 {% block content %}
 
-<a href="{{ url_for('prospects', category=category) }}">← Back to prospects</a>
+<a href="{{ url_for('prospects', category=category) }}">← Back to sponsors</a>
 
-<div class="eyebrow mt-4">PROSPECT WORKSPACE</div>
+<div class="eyebrow mt-4">SPONSOR OPPORTUNITY</div>
 <h1>{{ p.name }}</h1>
 
 <div class="card p-4 mb-4">
@@ -84,7 +84,7 @@
   </section>
 
   <p><strong>Geographic relevance:</strong> {{ prospect_record.geographic_relevance }}</p>
-  <p><strong>Evidence classification:</strong> {{ prospect_record.evidence_type|replace('_', ' ')|title }}</p>
+  <p><strong>Evidence classification:</strong> {{ prospect_record.evidence_type|workflow_label }}</p>
   <p><strong>Ranking:</strong> {{ prospect_record.ranking_explanation }}</p>
 
   <h3>Sources and Evidence</h3>
@@ -104,7 +104,7 @@
       <h2>Contact Research Worker</h2>
 
       {% if contact %}
-      <p><strong>Parent Prospect:</strong> {{ p.name }}</p>
+      <p><strong>Sponsor Organization:</strong> {{ p.name }}</p>
       <p>
         <strong>Recommended Local Target:</strong> {{ contact.recommended_target
         or p.name }}
@@ -161,7 +161,7 @@
 
       <pre class="message" id="prospect-outreach">{{ outreach }}</pre>
 
-      {{ copy_button('prospect-outreach', 'Copy message') }}
+      {{ copy_button('prospect-outreach', 'Copy outreach') }}
 
       <form
         method="post"
@@ -170,7 +170,7 @@
       >
         <input type="hidden" name="contact_json" value="{{ contact|tojson }}" />
         <textarea name="outreach" hidden>{{ outreach }}</textarea>
-        <button class="btn btn-dark w-100">Approve and Save Opportunity</button>
+        <button class="btn btn-dark w-100">Approve and Save Sponsor Opportunity</button>
       </form>
       {% else %}
       <div class="empty-state">

@@ -20,6 +20,11 @@ from services.contact_research_worker import (
 from services.generate_sponsorship_intelligence import (
     generate_workspace_intelligence,
 )
+from services.sponsor_research_worker import (
+    process_next_sponsor_research_assignment,
+)
+from services.outreach_generation_worker import process_next_outreach_generation_job
+from services.follow_up_generation_worker import process_next_follow_up_generation_job
 from services.sponsorship_intelligence_jobs import (
     claim_next_job,
     mark_completed,
@@ -30,7 +35,7 @@ from services.sponsorship_intelligence_persistence import (
 )
 
 
-DEFAULT_BACKGROUND_WORKFLOW_BUDGET_SECONDS = 240.0
+DEFAULT_BACKGROUND_WORKFLOW_BUDGET_SECONDS = 600.0
 DEFAULT_JOB_LEASE_SECONDS = 600.0
 DEFAULT_JOB_POLL_INTERVAL_SECONDS = 3.0
 DEFAULT_JOB_MAX_ATTEMPTS = 3
@@ -39,6 +44,7 @@ UNEXPECTED_FAILURE_MESSAGE = (
 )
 
 logger = logging.getLogger(__name__)
+_dispatch_cursor = 0
 
 
 def configure_worker_logging(stream: TextIO | None = None) -> None:
@@ -257,16 +263,40 @@ def process_next_background_job(
     lease_seconds: float,
     max_attempts: int,
 ) -> bool:
-    """Process one intelligence job or one Contact Discovery job."""
+    """Round-robin Strategy, Sponsor Research, and Contact Research."""
 
-    if process_next_job(
-        worker_id=worker_id,
-        workflow_budget_seconds=workflow_budget_seconds,
-        lease_seconds=lease_seconds,
-        max_attempts=max_attempts,
-    ):
-        return True
-    return process_next_contact_research_job()
+    global _dispatch_cursor
+    processors = (
+        lambda: process_next_job(
+            worker_id=worker_id,
+            workflow_budget_seconds=workflow_budget_seconds,
+            lease_seconds=lease_seconds,
+            max_attempts=max_attempts,
+        ),
+        lambda: process_next_sponsor_research_assignment(
+            worker_id=worker_id,
+            lease_seconds=lease_seconds,
+            max_attempts=max_attempts,
+        ),
+        process_next_contact_research_job,
+        lambda: process_next_outreach_generation_job(
+            worker_id=worker_id,
+            lease_seconds=lease_seconds,
+            max_attempts=max_attempts,
+        ),
+        lambda: process_next_follow_up_generation_job(
+            worker_id=worker_id,
+            lease_seconds=lease_seconds,
+            max_attempts=max_attempts,
+        ),
+    )
+    for offset in range(len(processors)):
+        index = (_dispatch_cursor + offset) % len(processors)
+        if processors[index]():
+            _dispatch_cursor = (index + 1) % len(processors)
+            return True
+    _dispatch_cursor = (_dispatch_cursor + 1) % len(processors)
+    return False
 
 
 def run_worker(

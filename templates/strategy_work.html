@@ -1,11 +1,24 @@
 {% extends "base.html" %}
+{% from "_workflow_guidance.html" import workflow_guidance %}
 
-{% block title %}Strategy Work · Marsha AI Sponsorship Coordinator{% endblock %}
+{% block title %}Sponsorship Strategy · Marsha AI Sponsorship Coordinator{% endblock %}
 
 {% block content %}
+{{ workflow_guidance(
+  'Sponsorship Strategy ready for review',
+  'Your Strategy Worker completed the sponsorship strategy for ' ~ initiative.name ~ '.',
+  'The strategy, sponsor categories, and recommended assets are ready for your review.',
+  'Review the recommendations and approve the strategy to begin sponsor research.',
+  'Approve Sponsorship Strategy' if not strategy_approved else 'Return to Dashboard',
+  url_for('approve_strategy_work') if not strategy_approved else url_for('workspace'),
+  'btn-primary',
+  'success',
+  'POST' if not strategy_approved else 'GET'
+) }}
+
 <section class="page-header">
   <p class="eyebrow">STRATEGY WORKER · READY FOR REVIEW</p>
-  <h1>Your sponsorship strategy</h1>
+  <h1>Your Sponsorship Strategy</h1>
   <p>
     Review the strategy and recommended sponsorship assets for
     {{ initiative.name }} before sponsor research begins.
@@ -65,9 +78,23 @@
   {% endif %}
 </section>
 
-<form method="post" action="{{ url_for('approve_strategy_work') }}">
-  <button class="btn btn-primary btn-lg" type="submit">
-    Approve Strategy and Continue
-  </button>
-</form>
+<div class="strategy-actions d-flex flex-wrap gap-2 align-items-center">
+  {% if not strategy_approved %}
+  <form method="post" action="{{ url_for('approve_strategy_work') }}">
+    <button class="btn btn-primary btn-lg" type="submit">
+      Approve Sponsorship Strategy
+    </button>
+  </form>
+  {% endif %}
+  <a class="btn btn-outline-light" href="{{ url_for('strategy_meeting') }}">
+    Edit Strategy Inputs
+  </a>
+  <form method="post" action="{{ url_for('generate_workspace_sponsorship_intelligence') }}">
+    <input type="hidden" name="regenerate" value="true">
+    <button class="btn btn-link" type="submit"
+      title="Generate a new strategy using your current saved inputs">
+      Rebuild Strategy
+    </button>
+  </form>
+</div>
 {% endblock %}

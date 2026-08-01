@@ -1,7 +1,7 @@
 {% extends "base.html" %} {% block content %}
 <a href="{{ url_for('workspace') }}">← Back to workspace</a>
 
-<div class="eyebrow mt-4">EVIDENCE-BACKED SPONSOR PROSPECTS</div>
+<div class="eyebrow mt-4">EVIDENCE-BACKED SPONSOR ORGANIZATIONS</div>
 <h1>{{ category_record.category if category_record else category|title }}</h1>
 
 <form method="post" class="mb-4">
@@ -38,7 +38,7 @@
       </p>
       <p>
         <strong>Evidence:</strong>
-        {{ p.evidence_type|replace('_', ' ')|title }}
+        {{ p.evidence_type|workflow_label }}
       </p>
       <p><strong>Ranking:</strong> {{ p.ranking_explanation }}</p>
       <p>
@@ -71,7 +71,7 @@
         class="btn btn-dark mt-auto"
         href="{{ url_for('prospect', category=category, index=p.id) }}"
       >
-        Open Prospect
+        Open Sponsor
       </a>
     </div>
   </div>
@@ -79,7 +79,7 @@
 </div>
 {% else %}
 <div class="empty-state">
-  <h2>No credible prospects saved yet.</h2>
+  <h2>No credible sponsors saved yet.</h2>
   <p>
     Run research to look for real organizations supported by public evidence.
     The Coordinator will not substitute placeholder companies.

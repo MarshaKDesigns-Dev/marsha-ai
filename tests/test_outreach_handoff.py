@@ -36,6 +36,7 @@ def opportunity(**overrides):
         "subject": None,
         "stage": "Research Approved",
         "follow_up_date": None,
+        "follow_up_completed_at": None,
         "updated_at": None,
     }
     values.update(overrides)
@@ -98,7 +99,7 @@ def render_opportunity(item):
 def test_research_approved_opportunity_with_contact_shows_generate_action():
     rendered = render_opportunity(opportunity())
 
-    assert "Generate Sponsor Outreach" in rendered
+    assert "Generate Outreach" in rendered
     assert "/opportunity/33/generate-outreach" in rendered
 
 
@@ -110,11 +111,41 @@ def test_research_approved_opportunity_without_contact_hides_generate_action():
     assert "Generate Sponsor Outreach" not in rendered
 
 
-def test_generate_outreach_uses_existing_worker_and_populates_draft(monkeypatch):
+def test_sent_opportunity_recommends_more_research():
+    rendered = render_opportunity(
+        opportunity(
+            stage="Sent",
+            follow_up_date="2026-08-05",
+        )
+    )
+
+    assert "Outreach Delivered" in rendered
+    assert "Follow-up scheduled for 2026-08-05." in rendered
+    assert "Research More Sponsors" in rendered
+
+
+def test_completed_follow_up_recommends_more_research():
+    rendered = render_opportunity(
+        opportunity(
+            stage="Sent",
+            follow_up_date="2026-08-05",
+            follow_up_completed_at="2026-07-29",
+        )
+    )
+
+    assert "Follow-Up Complete" in rendered
+    assert "Your follow-up has been recorded." in rendered
+    assert "Research More Sponsors" in rendered
+
+
+def test_generate_outreach_enqueues_and_returns_without_drafting(monkeypatch):
+    import services.outreach_generation_jobs as jobs
     item = opportunity(message_approved_at="stale approval")
     query = route_context(monkeypatch, item)
     draft = MagicMock(return_value="Evidence-backed sponsor email.")
     monkeypatch.setattr(app_module, "draft_outreach", draft)
+    enqueue = MagicMock(return_value=(SimpleNamespace(status="queued"), True))
+    monkeypatch.setattr(jobs, "enqueue_job", enqueue)
 
     response = app_module.app.test_client().post(
         "/opportunity/33/generate-outreach"
@@ -127,13 +158,10 @@ def test_generate_outreach_uses_existing_worker_and_populates_draft(monkeypatch)
         organization_id=11,
         initiative_id=22,
     )
-    draft.assert_called_once()
-    assert item.outreach == "Evidence-backed sponsor email."
-    assert item.subject == "Potential partnership with Bright Futures"
-    assert item.outreach_channel == "email"
-    assert item.stage == "Ready to Send"
-    assert item.message_approved_at is None
-    app_module.db.session.commit.assert_called_once_with()
+    draft.assert_not_called()
+    enqueue.assert_called_once()
+    assert item.outreach is None
+    app_module.db.session.commit.assert_not_called()
 
 
 def test_existing_draft_is_not_generated_twice(monkeypatch):
@@ -161,7 +189,7 @@ def test_generated_email_can_be_reviewed_and_sent_after_existing_approval():
     )
 
     assert "review-message" in draft_rendered
-    assert "Run Message Quality Review" in draft_rendered
+    assert "Review Outreach" in draft_rendered
     assert "send-email" not in draft_rendered
 
     reviewed_rendered = render_opportunity(
@@ -173,7 +201,7 @@ def test_generated_email_can_be_reviewed_and_sent_after_existing_approval():
             stage="Ready to Send",
         )
     )
-    assert "Approve Message for Sending" in reviewed_rendered
+    assert "Approve Outreach" in reviewed_rendered
     assert "send-email" not in reviewed_rendered
     assert "mark-sent" not in reviewed_rendered
 

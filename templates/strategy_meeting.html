@@ -1,13 +1,13 @@
 {% extends "base.html" %}
 
-{% block title %}Strategy Meeting · Marsha AI{% endblock %}
+{% block title %}Sponsorship Strategy · Marsha AI{% endblock %}
 
 {% block content %}
 <div class="row justify-content-center">
   <div class="col-xl-9">
     <header class="mb-4">
       <div class="eyebrow">STRATEGY WORKER</div>
-      <h1>Strategy Meeting</h1>
+      <h1>Sponsorship Strategy</h1>
       <p class="lead mb-0">
         Your Strategy Worker already has your organization and initiative
         information. Use this conversation to set priorities, identify
@@ -58,8 +58,13 @@
         <a class="btn btn-outline-dark" href="{{ url_for('workspace') }}">
           Return to Dashboard
         </a>
+        {% if intelligence %}
+        <a class="btn btn-outline-light" href="{{ url_for('strategy_work') }}">
+          View Strategy
+        </a>
+        {% endif %}
         <button class="btn btn-gold" type="submit">
-          Complete Meeting and Build Strategy
+          {{ 'Save Strategy Inputs' if intelligence else 'Build Sponsorship Strategy' }}
         </button>
       </div>
     </form>
