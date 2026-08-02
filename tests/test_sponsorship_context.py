@@ -2,6 +2,7 @@ from types import SimpleNamespace
 
 from services.sponsorship_context import (
     build_sponsorship_context,
+    format_sponsorship_context,
     geographic_instruction,
     mapped_industries,
     parse_multiline,
@@ -71,6 +72,10 @@ def test_shared_context_includes_needs_and_relationship_rules():
         strategy_priority_sponsors="Local Bank",
         strategy_success_beyond_fundraising="Stronger alumni engagement",
         strategy_concerns_constraints="Volunteer capacity",
+        audience_age_context="mixed_with_minors",
+        sponsor_category_exclusions_json=(
+            '["Alcohol and breweries", "Payday lending"]'
+        ),
     )
 
     context = build_sponsorship_context(organization, initiative)
@@ -90,3 +95,11 @@ def test_shared_context_includes_needs_and_relationship_rules():
         "Stronger alumni engagement"
     )
     assert context["strategy_concerns_constraints"] == "Volunteer capacity"
+    assert context["audience_age_context"] == "mixed_with_minors"
+    assert context["sponsor_category_exclusions"] == [
+        "Alcohol and breweries",
+        "Payday lending",
+    ]
+    prompt = format_sponsorship_context(organization, initiative)
+    assert "User-selected audience age context: mixed_with_minors" in prompt
+    assert "Alcohol and breweries" in prompt

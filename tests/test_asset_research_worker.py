@@ -332,7 +332,7 @@ def test_asset_research_route_enqueues_without_running_ai(
     research.assert_not_called()
 
 
-def test_asset_research_route_does_not_enqueue_blocked_eligibility(
+def test_asset_research_route_enqueues_when_age_context_is_unclear(
     monkeypatch,
 ):
     import services.research_assignments as assignment_service
@@ -340,7 +340,7 @@ def test_asset_research_route_does_not_enqueue_blocked_eligibility(
     organization = SimpleNamespace(id=11)
     initiative = SimpleNamespace(id=22, organization_id=11)
     asset = SimpleNamespace(id=33, name="Scholarship Partner")
-    blocked = SponsorEligibilityEngine().evaluate(
+    eligible = SponsorEligibilityEngine().evaluate(
         EligibilityFacts(
             mission="Support community leadership.",
             location="Durham, NC",
@@ -360,21 +360,20 @@ def test_asset_research_route_does_not_enqueue_blocked_eligibility(
     monkeypatch.setattr(
         app_module,
         "get_sponsorship_intelligence",
-        lambda *args: SimpleNamespace(sponsor_eligibility=blocked),
+        lambda *args: SimpleNamespace(sponsor_eligibility=eligible),
     )
-    enqueue = MagicMock()
+    enqueue = MagicMock(return_value=(SimpleNamespace(id=1), True))
     monkeypatch.setattr(assignment_service, "enqueue_assignment", enqueue)
 
     response = app_module.app.test_client().post("/research/assets/33")
 
     assert response.status_code == 302
-    assert response.location.endswith("/research")
-    enqueue.assert_not_called()
+    assert response.location.endswith("/research/assignments/1")
+    enqueue.assert_called_once()
 
 
-def test_blocked_asset_research_does_not_call_provider():
-    client = MagicMock()
-    blocked = SponsorEligibilityEngine().evaluate(
+def test_unclear_age_does_not_block_asset_research_before_provider():
+    result = SponsorEligibilityEngine().evaluate(
         EligibilityFacts(
             mission="Support community leadership.",
             location="Durham, NC",
@@ -383,23 +382,7 @@ def test_blocked_asset_research_does_not_call_provider():
         )
     )
 
-    with pytest.raises(
-        SponsorResearchError,
-        match="audience age context is confirmed",
-    ):
-        research_sponsorship_asset(
-            SimpleNamespace(name="Alliance", mission="Leadership"),
-            SimpleNamespace(name="Summit", audience="Students"),
-            SimpleNamespace(
-                name="Named Participant Scholarship",
-                description="Fund participant scholarships.",
-                sponsor_value="Named recognition.",
-            ),
-            blocked,
-            client=client,
-        )
-
-    client.with_options.assert_not_called()
+    assert result.research_blocked is False
 
 
 def test_duplicate_result_selection_creates_one_asset_scoped_opportunity(

@@ -54,6 +54,68 @@
         placeholder="Include timing, capacity, brand, relationship, approval, or delivery constraints. Enter None if there are none."
       >{{ values.get('strategy_concerns_constraints', initiative.strategy_concerns_constraints or '') }}</textarea>
 
+      <fieldset class="mb-4">
+        <legend class="form-label fw-bold">Who is the initiative primarily for?</legend>
+        <p class="text-muted small">
+          This gives Marsha AI useful context. It does not automatically block
+          any sponsor category.
+        </p>
+        {% for value, label in audience_age_options %}
+        <div class="form-check">
+          <input class="form-check-input" type="radio"
+            name="audience_age_context" id="audience_age_{{ value }}"
+            value="{{ value }}" required
+            {% if selected_age_context == value %}checked{% endif %}>
+          <label class="form-check-label" for="audience_age_{{ value }}">{{ label }}</label>
+        </div>
+        {% endfor %}
+      </fieldset>
+
+      <fieldset class="mb-3">
+        <legend class="form-label fw-bold">Are any sponsor categories off limits?</legend>
+        <p class="text-muted small">
+          Your selections are authoritative. Marsha AI will enforce only the
+          category exclusions you choose here.
+        </p>
+        <div class="form-check mb-2">
+          <input class="form-check-input" type="radio"
+            name="category_exclusion_mode" id="category_exclusions_none"
+            value="none" required
+            {% if exclusion_mode == 'none' %}checked{% endif %}>
+          <label class="form-check-label" for="category_exclusions_none">
+            No category exclusions
+          </label>
+        </div>
+        <div class="form-check mb-2">
+          <input class="form-check-input" type="radio"
+            name="category_exclusion_mode" id="category_exclusions_selected"
+            value="selected" required
+            {% if exclusion_mode == 'selected' %}checked{% endif %}>
+          <label class="form-check-label" for="category_exclusions_selected">
+            Exclude selected categories
+          </label>
+        </div>
+        <div class="row row-cols-1 row-cols-md-2 ms-2 mb-3">
+          {% for category in sponsor_category_exclusions %}
+          <div class="col form-check">
+            <input class="form-check-input" type="checkbox"
+              name="sponsor_category_exclusions"
+              id="category_exclusion_{{ loop.index }}" value="{{ category }}"
+              {% if category in selected_exclusions %}checked{% endif %}>
+            <label class="form-check-label" for="category_exclusion_{{ loop.index }}">
+              {{ category }}
+            </label>
+          </div>
+          {% endfor %}
+        </div>
+        <label class="form-label" for="custom_category_exclusions">
+          Other category exclusions
+        </label>
+        <textarea class="form-control" id="custom_category_exclusions"
+          name="custom_category_exclusions" rows="3"
+          placeholder="Enter one category per line.">{{ custom_exclusions_value }}</textarea>
+      </fieldset>
+
       <div class="d-flex flex-wrap gap-2 justify-content-end mt-4">
         <a class="btn btn-outline-dark" href="{{ url_for('workspace') }}">
           Return to Dashboard

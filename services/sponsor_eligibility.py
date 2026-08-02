@@ -54,6 +54,7 @@ class EligibilityFacts(BaseModel):
     location: str = ""
     initiative_name: str = ""
     audience: str = ""
+    audience_age_preference: AudienceAgeContext | None = None
     needs: str = ""
     goals: str = ""
     fundraising_target: str = ""

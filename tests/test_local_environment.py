@@ -1,6 +1,8 @@
 """Tests for deterministic local Flask environment tooling."""
 
 from pathlib import Path
+from contextlib import nullcontext
+from types import SimpleNamespace
 from unittest.mock import MagicMock
 import os
 import subprocess
@@ -8,6 +10,7 @@ import subprocess
 from sqlalchemy import create_engine, inspect, text
 
 import scripts.migrate_local as migrate_local
+import migrate_strategy_preferences
 from app import db
 from scripts.verify_local import (
     CURRENT_FIELDS,
@@ -21,6 +24,7 @@ def test_migration_runner_has_one_explicit_order():
     assert [item[0] for item in migrate_local.MIGRATIONS] == [
         "strategy_meeting_answers",
         "strategy_meeting_assets",
+        "strategy_preferences",
         "phase1_context",
         "asset_research_assignments",
         "durable_research_assignments",
@@ -31,6 +35,47 @@ def test_migration_runner_has_one_explicit_order():
         "sponsor_research_diagnostics",
         "research_assignment_selections",
     ]
+
+
+def test_strategy_preferences_migration_is_additive_and_idempotent(
+    tmp_path,
+    monkeypatch,
+):
+    engine = create_engine(f"sqlite:///{tmp_path / 'preferences.db'}")
+    with engine.begin() as connection:
+        connection.execute(text(
+            "CREATE TABLE sponsorship_initiative (id INTEGER PRIMARY KEY)"
+        ))
+    session = MagicMock()
+
+    def execute(statement):
+        with engine.begin() as connection:
+            return connection.execute(statement)
+
+    session.execute.side_effect = execute
+    monkeypatch.setattr(
+        migrate_strategy_preferences,
+        "app",
+        SimpleNamespace(app_context=nullcontext),
+    )
+    monkeypatch.setattr(
+        migrate_strategy_preferences,
+        "db",
+        SimpleNamespace(engine=engine, session=session),
+    )
+
+    migrate_strategy_preferences.run_migration()
+    migrate_strategy_preferences.run_migration()
+
+    columns = {
+        item["name"]
+        for item in inspect(engine).get_columns("sponsorship_initiative")
+    }
+    assert columns == {
+        "id",
+        "audience_age_context",
+        "sponsor_category_exclusions_json",
+    }
 
 
 def test_migration_runner_contains_current_additive_migrations_only():

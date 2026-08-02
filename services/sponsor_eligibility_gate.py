@@ -6,11 +6,7 @@ import re
 from dataclasses import dataclass
 from typing import Any
 
-from services.sponsor_eligibility import (
-    AudienceAgeContext,
-    EligibilityStatus,
-    SponsorEligibilityAnalysis,
-)
+from services.sponsor_eligibility import EligibilityStatus, SponsorEligibilityAnalysis
 
 
 @dataclass(frozen=True)
@@ -37,6 +33,20 @@ _INDUSTRY_TERMS = {
         "predatory financial",
     ),
     "other-age-inappropriate": ("age inappropriate",),
+    "alcohol-and-breweries": (
+        "alcohol", "beer", "wine", "spirits", "brewery", "breweries",
+        "distillery",
+    ),
+    "gambling-and-casinos": ("gambling", "casino", "lottery", "sportsbook"),
+    "tobacco-and-nicotine": (
+        "tobacco", "nicotine", "cigarette", "cigar", "vape", "vaping",
+    ),
+    "adult-entertainment-or-adult-content": (
+        "adult entertainment", "adult content",
+    ),
+    "firearms-or-weapons": ("firearm", "weapon", "gun"),
+    "political-organizations": ("political", "politics", "campaign", "party"),
+    "religious-organizations": ("religious", "religion", "church", "ministry"),
 }
 
 
@@ -77,19 +87,6 @@ def evaluate_category_research(
                 "research. Regenerate sponsorship intelligence first."
             ),
             reason_code="eligibility_analysis_required",
-        )
-
-    if (
-        analysis.audience_age_context is AudienceAgeContext.UNCLEAR
-        or "audience_age_context" in analysis.missing_information
-    ):
-        return CategoryResearchDecision(
-            allowed=False,
-            reason=(
-                "Sponsor research is blocked until the audience age context "
-                "is confirmed."
-            ),
-            reason_code="audience_age_context_required",
         )
 
     if (

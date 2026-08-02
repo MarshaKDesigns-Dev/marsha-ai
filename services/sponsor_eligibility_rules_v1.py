@@ -17,19 +17,6 @@ from services.sponsor_eligibility import (
 
 RULE_VERSION = "sponsor-eligibility-v1"
 
-MINOR_RESTRICTED_INDUSTRIES = (
-    ("alcohol", "Alcohol"),
-    ("tobacco", "Tobacco"),
-    ("vaping", "Vaping"),
-    ("cannabis", "Cannabis"),
-    ("gambling", "Gambling"),
-    ("sports-betting", "Sports Betting"),
-    ("adult-entertainment", "Adult Entertainment"),
-    ("firearms-weapons", "Firearms and Weapons"),
-    ("predatory-financial-products", "Predatory Financial Products"),
-    ("other-age-inappropriate", "Other Clearly Age-Inappropriate Industries"),
-)
-
 CHILD_PATTERNS = (
     r"\bchild(?:ren)?\b",
     r"\bkids?\b",
@@ -116,6 +103,19 @@ class AudienceAgeContextRule:
     rule_id = "audience_age_context"
 
     def evaluate(self, context: EligibilityRuleContext) -> RuleEffect:
+        if context.facts.audience_age_preference is not None:
+            age_context = context.facts.audience_age_preference
+            return RuleEffect(
+                audit=_audit(
+                    self.rule_id,
+                    "user_selected_age_context",
+                    f"age_context={age_context.value}",
+                    EligibilityEvidenceSource.USER_RESTRICTION,
+                ),
+                age_context=age_context,
+                confidence=EligibilityConfidence.HIGH,
+            )
+
         raw_text = context.facts.audience
         supplemental_text = " ".join(context.facts.analyzed_target_audiences)
         combined_text = f"{raw_text} {supplemental_text}".strip()
@@ -198,85 +198,6 @@ class RequiredContextRule:
         )
 
 
-class UnclearAgeResearchBlockRule:
-    """Block research unless the audience age context is known."""
-
-    rule_id = "unclear_age_research_block"
-
-    def evaluate(self, context: EligibilityRuleContext) -> RuleEffect:
-        if context.age_context is AudienceAgeContext.UNCLEAR:
-            return RuleEffect(
-                audit=_audit(
-                    self.rule_id,
-                    "age_context_confirmation_required",
-                    "research_blocked",
-                    EligibilityEvidenceSource.DETERMINISTIC_RULE,
-                ),
-                blocking_reasons=("audience_age_context_required",),
-                missing_information=("audience_age_context",),
-            )
-
-        return RuleEffect(
-            audit=_audit(
-                self.rule_id,
-                "age_context_confirmed",
-                "not_applicable",
-                EligibilityEvidenceSource.DETERMINISTIC_RULE,
-            )
-        )
-
-
-class MinorAudienceIndustryExclusionRule:
-    """Apply mandatory age-safety exclusions to audiences with minors."""
-
-    rule_id = "minor_audience_industry_exclusions"
-
-    def evaluate(self, context: EligibilityRuleContext) -> RuleEffect:
-        minor_contexts = {
-            AudienceAgeContext.CHILDREN,
-            AudienceAgeContext.YOUTH,
-            AudienceAgeContext.MIXED_WITH_MINORS,
-        }
-        if context.age_context not in minor_contexts:
-            return RuleEffect(
-                audit=_audit(
-                    self.rule_id,
-                    "minor_audience_not_identified",
-                    "not_applicable",
-                    EligibilityEvidenceSource.DETERMINISTIC_RULE,
-                )
-            )
-
-        exclusions = tuple(
-            IndustryExclusion(
-                industry_code=code,
-                industry_label=label,
-                rule_id=self.rule_id,
-                reason_code="minor_audience_age_safety",
-                source=EligibilityEvidenceSource.DETERMINISTIC_RULE,
-            )
-            for code, label in MINOR_RESTRICTED_INDUSTRIES
-        )
-        return RuleEffect(
-            audit=_audit(
-                self.rule_id,
-                "minor_audience_age_safety",
-                f"excluded_industries={len(exclusions)}",
-                EligibilityEvidenceSource.QUESTIONNAIRE,
-                EligibilityEvidenceSource.DETERMINISTIC_RULE,
-            ),
-            exclusions=exclusions,
-            age_requirements=(
-                "All sponsors and activations must be appropriate for minors.",
-                "Restricted products must not be marketed, sampled, or promoted.",
-            ),
-            brand_safety_requirements=(
-                "Sponsors must maintain brands appropriate for audiences "
-                "that include minors.",
-            ),
-        )
-
-
 class ExplicitRestrictionRule:
     """Apply future user restrictions with highest decision authority."""
 
@@ -327,8 +248,6 @@ class SponsorEligibilityRulesV1:
     rules = (
         AudienceAgeContextRule(),
         RequiredContextRule(),
-        UnclearAgeResearchBlockRule(),
-        MinorAudienceIndustryExclusionRule(),
         ExplicitRestrictionRule(),
     )
 

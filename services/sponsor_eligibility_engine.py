@@ -6,6 +6,7 @@ from collections.abc import Iterable
 from typing import Any
 
 from services.sponsor_eligibility import (
+    AudienceAgeContext,
     EligibilityConfidence,
     EligibilityFacts,
     EligibilityStatus,
@@ -52,6 +53,13 @@ def normalize_eligibility_facts(
         location=_clean(getattr(organization, "location", "")),
         initiative_name=_clean(getattr(initiative, "name", "")),
         audience=_clean(getattr(initiative, "audience", "")),
+        audience_age_preference=(
+            AudienceAgeContext(value)
+            if (value := _clean(
+                getattr(initiative, "audience_age_context", "")
+            )) in {item.value for item in AudienceAgeContext}
+            else None
+        ),
         needs=_clean(getattr(initiative, "needs", "")),
         goals=_clean(getattr(initiative, "goals", "")),
         fundraising_target=_clean(
@@ -226,6 +234,21 @@ def generate_sponsor_eligibility_analysis(
     engine: SponsorEligibilityEngine | None = None,
 ) -> SponsorEligibilityAnalysis:
     """Normalize current facts and execute the deterministic engine."""
+
+    if not explicit_restrictions:
+        import json
+
+        try:
+            explicit_restrictions = json.loads(
+                getattr(
+                    initiative,
+                    "sponsor_category_exclusions_json",
+                    "[]",
+                )
+                or "[]"
+            )
+        except (TypeError, ValueError):
+            explicit_restrictions = ()
 
     facts = normalize_eligibility_facts(
         organization,

@@ -21,6 +21,8 @@ def _records():
         strategy_priority_sponsors="",
         strategy_success_beyond_fundraising="",
         strategy_concerns_constraints="",
+        audience_age_context="unclear",
+        sponsor_category_exclusions_json="[]",
         strategy_meeting_completed_at=None,
     )
     return organization, initiative
@@ -144,6 +146,8 @@ def test_valid_meeting_saves_enqueues_and_returns_to_dashboard(monkeypatch):
             "strategy_concerns_constraints": (
                 "Small volunteer team and a fixed event date"
             ),
+            "audience_age_context": "mixed_with_minors",
+            "category_exclusion_mode": "none",
         },
     )
 
@@ -161,6 +165,8 @@ def test_valid_meeting_saves_enqueues_and_returns_to_dashboard(monkeypatch):
     assert initiative.strategy_concerns_constraints == (
         "Small volunteer team and a fixed event date"
     )
+    assert initiative.audience_age_context == "mixed_with_minors"
+    assert initiative.sponsor_category_exclusions_json == "[]"
     assert initiative.audience == ""
     assert initiative.needs == ""
     assert initiative.goals == ""
@@ -209,6 +215,8 @@ def test_repeated_meeting_submission_reuses_existing_strategy(monkeypatch):
                 "strategy_priority_sponsors": "Local Bank",
                 "strategy_success_beyond_fundraising": "Community participation",
                 "strategy_concerns_constraints": "Limited volunteer capacity",
+                "audience_age_context": "adult_only",
+                "category_exclusion_mode": "none",
             },
         )
         with client.session_transaction() as session:
@@ -289,3 +297,36 @@ def test_whitespace_only_strategy_answers_do_not_enqueue_generation(monkeypatch)
     assert initiative.strategy_meeting_completed_at is None
     commit.assert_not_called()
     enqueue.assert_not_called()
+
+
+def test_strategy_meeting_persists_selected_and_custom_exclusions(monkeypatch):
+    organization, initiative = _records()
+    monkeypatch.setattr(app_module, "get_active_organization", lambda: organization)
+    monkeypatch.setattr(app_module, "get_active_initiative", lambda: initiative)
+    monkeypatch.setattr(app_module, "get_sponsorship_intelligence", lambda *args: None)
+    monkeypatch.setattr(
+        app_module,
+        "enqueue_workspace_intelligence_generation",
+        MagicMock(return_value=(SimpleNamespace(status="pending"), True)),
+    )
+    monkeypatch.setattr(app_module.db.session, "commit", MagicMock())
+
+    response = app_module.app.test_client().post(
+        "/strategy-meeting",
+        data={
+            "strategy_top_priorities": "Visibility, scholarships, partners",
+            "strategy_priority_sponsors": "Local Bank",
+            "strategy_success_beyond_fundraising": "Community participation",
+            "strategy_concerns_constraints": "Limited volunteer capacity",
+            "audience_age_context": "youth",
+            "category_exclusion_mode": "selected",
+            "sponsor_category_exclusions": ["Alcohol and breweries"],
+            "custom_category_exclusions": "Payday lending\nFast fashion",
+        },
+    )
+
+    assert response.status_code == 302
+    assert initiative.audience_age_context == "youth"
+    assert app_module.json_list(
+        initiative.sponsor_category_exclusions_json
+    ) == ["Alcohol and breweries", "Payday lending", "Fast fashion"]

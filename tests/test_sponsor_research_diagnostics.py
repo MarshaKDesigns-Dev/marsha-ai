@@ -77,7 +77,10 @@ def test_validation_records_citation_eligibility_and_exact_asset_mismatch():
     validate_researched_prospects(
         SponsorResearchResult(prospects=[prospect]),
         cited_urls={"https://different.example/source"},
-        eligibility=eligibility("Middle school students"),
+        eligibility=eligibility(
+            "Middle school students",
+            restrictions=["Alcohol and breweries"],
+        ),
         organization=SimpleNamespace(
             current_sponsors_json="[]", existing_relationships_json="[]",
             businesses_already_contacted_json="[]",

@@ -6,6 +6,7 @@ from datetime import UTC, date, datetime, timedelta
 from time import monotonic
 from flask import g, jsonify, render_template, request, redirect, url_for, flash, session
 from openai import OpenAI
+from sqlalchemy.orm import deferred
 from application import app
 from extensions import db
 from services.dashboard import build_dashboard
@@ -14,7 +15,6 @@ from services.sponsor_eligibility_gate import (
     evaluate_category_research,
 )
 from services.sponsor_research_readiness import (
-    audience_age_context_is_clear,
     evaluate_sponsor_research_readiness,
     missing_strategy_meeting_answers,
     validate_approval_status,
@@ -188,6 +188,23 @@ ASSETS = [
 
 STAGES = ["Ready to Send", "Sent", "Follow-Up Due", "Responded", "Meeting", "Proposal", "Won", "Lost"]
 
+AUDIENCE_AGE_OPTIONS = (
+    ("adult_only", "Adults only"),
+    ("mixed_with_minors", "Adults and minors"),
+    ("youth", "Minors primarily"),
+    ("unclear", "Unknown or not yet determined"),
+)
+SPONSOR_CATEGORY_EXCLUSIONS = (
+    "Alcohol and breweries",
+    "Cannabis",
+    "Gambling and casinos",
+    "Tobacco and nicotine",
+    "Adult entertainment or adult content",
+    "Firearms or weapons",
+    "Political organizations",
+    "Religious organizations",
+)
+
 TEST_MODE = os.getenv("TEST_MODE", "true").lower() == "true"
 TEST_EMAIL = os.getenv("TEST_EMAIL", "")
 SENDER_NAME = os.getenv("SENDER_NAME", "Organization Representative")
@@ -259,6 +276,12 @@ class SponsorshipInitiative(db.Model):
     strategy_priority_sponsors = db.Column(db.Text)
     strategy_success_beyond_fundraising = db.Column(db.Text)
     strategy_concerns_constraints = db.Column(db.Text)
+    audience_age_context = deferred(
+        db.Column(db.String(40), default="unclear")
+    )
+    sponsor_category_exclusions_json = deferred(
+        db.Column(db.Text, default="[]")
+    )
     strategy_meeting_completed_at = db.Column(db.DateTime)
     status = db.Column(db.String(50), default="Active")
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
@@ -2208,13 +2231,39 @@ def strategy_meeting():
                 "",
             ).strip(),
         }
+        age_context = request.form.get("audience_age_context", "").strip()
+        exclusion_mode = request.form.get("category_exclusion_mode", "").strip()
+        selected_exclusions = request.form.getlist(
+            "sponsor_category_exclusions"
+        )
+        custom_exclusions = parse_multiline(
+            request.form.get("custom_category_exclusions", "")
+        )
         missing = missing_strategy_meeting_answers(answers=fields)
 
-        if missing:
+        allowed_age_contexts = {value for value, _ in AUDIENCE_AGE_OPTIONS}
+        allowed_exclusions = set(SPONSOR_CATEGORY_EXCLUSIONS)
+        preference_error = None
+        if age_context not in allowed_age_contexts:
+            preference_error = "Select the audience age context."
+        elif exclusion_mode not in {"none", "selected"}:
+            preference_error = "Choose whether any sponsor categories are excluded."
+        elif any(item not in allowed_exclusions for item in selected_exclusions):
+            preference_error = "Choose only the available sponsor category exclusions."
+        elif exclusion_mode == "none" and (selected_exclusions or custom_exclusions):
+            preference_error = "Choose category exclusions or No category exclusions, not both."
+        elif exclusion_mode == "selected" and not (
+            selected_exclusions or custom_exclusions
+        ):
+            preference_error = "Select or enter at least one sponsor category exclusion."
+
+        if missing or preference_error:
             flash(
-                "Complete the Sponsorship Strategy fields: "
-                + ", ".join(missing)
-                + ".",
+                (
+                    "Complete the Sponsorship Strategy fields: "
+                    + ", ".join(missing)
+                    + "."
+                ) if missing else preference_error,
                 "warning",
             )
             return render_template(
@@ -2222,10 +2271,22 @@ def strategy_meeting():
                 organization=organization,
                 initiative=initiative,
                 form_values=fields,
+                audience_age_options=AUDIENCE_AGE_OPTIONS,
+                sponsor_category_exclusions=SPONSOR_CATEGORY_EXCLUSIONS,
+                selected_age_context=age_context,
+                exclusion_mode=exclusion_mode,
+                selected_exclusions=set(selected_exclusions),
+                custom_exclusions_value="\n".join(custom_exclusions),
             )
 
         for name, value in fields.items():
             setattr(initiative, name, value)
+        initiative.audience_age_context = age_context
+        initiative.sponsor_category_exclusions_json = dump_list(
+            []
+            if exclusion_mode == "none"
+            else [*selected_exclusions, *custom_exclusions]
+        )
         initiative.strategy_meeting_completed_at = (
             datetime.now(UTC).replace(tzinfo=None)
         )
@@ -2262,6 +2323,27 @@ def strategy_meeting():
         initiative=initiative,
         form_values=None,
         intelligence=get_sponsorship_intelligence(organization, initiative),
+        audience_age_options=AUDIENCE_AGE_OPTIONS,
+        sponsor_category_exclusions=SPONSOR_CATEGORY_EXCLUSIONS,
+        selected_age_context=(
+            getattr(initiative, "audience_age_context", None) or "unclear"
+        ),
+        exclusion_mode=(
+            "selected"
+            if json_list(getattr(
+                initiative, "sponsor_category_exclusions_json", "[]"
+            ))
+            else "none"
+        ),
+        selected_exclusions=set(json_list(getattr(
+            initiative, "sponsor_category_exclusions_json", "[]"
+        ))),
+        custom_exclusions_value="\n".join(
+            item for item in json_list(getattr(
+                initiative, "sponsor_category_exclusions_json", "[]"
+            ))
+            if item not in SPONSOR_CATEGORY_EXCLUSIONS
+        ),
     )
 
 

@@ -63,6 +63,10 @@ from migrate_strategy_meeting_assets import (  # noqa: E402
     INITIATIVE_COLUMNS as STRATEGY_ASSET_COLUMNS,
     run_migration as run_strategy_asset_migration,
 )
+from migrate_strategy_preferences import (  # noqa: E402
+    INITIATIVE_COLUMNS as STRATEGY_PREFERENCE_COLUMNS,
+    run_migration as run_strategy_preference_migration,
+)
 
 
 # app.py's guarded create_all supplies the model tables on a brand-new local
@@ -83,6 +87,11 @@ MIGRATIONS = (
             "sponsorship_initiative": set(STRATEGY_ASSET_COLUMNS),
             "sponsorship_asset": set(ASSET_COLUMNS),
         },
+    ),
+    (
+        "strategy_preferences",
+        run_strategy_preference_migration,
+        {"sponsorship_initiative": set(STRATEGY_PREFERENCE_COLUMNS)},
     ),
     (
         "phase1_context",

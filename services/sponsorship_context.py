@@ -189,6 +189,12 @@ def build_sponsorship_context(organization: Any, initiative: Any) -> dict[str, A
             getattr(organization, "businesses_never_contact_json", "[]")
         ),
         "community": str(getattr(initiative, "audience", "") or "").strip(),
+        "audience_age_context": str(
+            getattr(initiative, "audience_age_context", "unclear") or "unclear"
+        ).strip(),
+        "sponsor_category_exclusions": json_list(
+            getattr(initiative, "sponsor_category_exclusions_json", "[]")
+        ),
         "strategy_top_priorities": str(
             getattr(initiative, "strategy_top_priorities", "") or ""
         ).strip(),
@@ -218,6 +224,11 @@ def format_sponsorship_context(organization: Any, initiative: Any) -> str:
             f"Organization type: {context['organization_type'] or 'Not provided'}",
             f"Mission: {context['mission'] or 'Not provided'}",
             f"Community and audience: {context['community'] or 'Not provided'}",
+            f"User-selected audience age context: {context['audience_age_context']}",
+            (
+                "User-selected sponsor category exclusions: "
+                f"{context['sponsor_category_exclusions'] or 'None'}"
+            ),
             f"Fundraising goal: {context['fundraising_goal'] or 'Not provided'}",
             f"Structured sponsorship needs: {context['structured_needs']}",
             f"Other needs: {context['other_needs'] or 'None'}",

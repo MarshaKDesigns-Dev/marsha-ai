@@ -30,13 +30,14 @@ from services.sponsor_research import (
 )
 
 
-def eligibility(audience="Adults 21 and older"):
+def eligibility(audience="Adults 21 and older", *, restrictions=()):
     return SponsorEligibilityEngine().evaluate(
         EligibilityFacts(
             mission="Support community education.",
             location="Durham, NC",
             initiative_name="Education Conference",
             audience=audience,
+            explicit_restrictions=list(restrictions),
         )
     )
 
@@ -261,7 +262,10 @@ def test_deterministic_industry_exclusion_is_enforced():
     accepted = validate_researched_prospects(
         SponsorResearchResult(prospects=[alcohol]),
         cited_urls={"https://brewery.example/community"},
-        eligibility=eligibility("Middle school students"),
+        eligibility=eligibility(
+            "Middle school students",
+            restrictions=["Alcohol and breweries"],
+        ),
     )
 
     assert accepted == []

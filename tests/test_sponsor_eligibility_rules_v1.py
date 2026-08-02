@@ -7,11 +7,7 @@ from services.sponsor_eligibility import (
     EligibilityEvidenceSource,
     EligibilityFacts,
 )
-from services.sponsor_eligibility_rules_v1 import (
-    MINOR_RESTRICTED_INDUSTRIES,
-    RULE_VERSION,
-    SponsorEligibilityRulesV1,
-)
+from services.sponsor_eligibility_rules_v1 import RULE_VERSION, SponsorEligibilityRulesV1
 
 
 def make_facts(audience: str, **overrides) -> EligibilityFacts:
@@ -36,7 +32,7 @@ def make_facts(audience: str, **overrides) -> EligibilityFacts:
         ),
     ],
 )
-def test_minor_audiences_receive_all_strict_exclusions(
+def test_minor_audiences_do_not_create_automatic_exclusions(
     audience,
     expected_context,
 ):
@@ -45,21 +41,7 @@ def test_minor_audiences_receive_all_strict_exclusions(
     )
 
     assert context.age_context is expected_context
-    assert {
-        item.industry_code
-        for item in context.exclusions
-    } == {
-        code
-        for code, _ in MINOR_RESTRICTED_INDUSTRIES
-    }
-    assert all(
-        item.rule_id == "minor_audience_industry_exclusions"
-        for item in context.exclusions
-    )
-    assert all(
-        item.reason_code == "minor_audience_age_safety"
-        for item in context.exclusions
-    )
+    assert context.exclusions == []
     assert audits
 
 
@@ -73,19 +55,14 @@ def test_clearly_adult_only_audience_avoids_youth_exclusions():
     assert context.blocking_reasons == []
 
 
-def test_unclear_age_context_blocks_research():
+def test_unclear_age_context_does_not_block_research():
     context, audits = SponsorEligibilityRulesV1().execute(
         make_facts("Local residents and community partners")
     )
 
     assert context.age_context is AudienceAgeContext.UNCLEAR
-    assert "audience_age_context_required" in context.blocking_reasons
-    assert "audience_age_context" in context.missing_information
-    assert any(
-        audit.rule_id == "unclear_age_research_block"
-        and audit.outcome == "research_blocked"
-        for audit in audits
-    )
+    assert context.blocking_reasons == []
+    assert context.missing_information == []
 
 
 def test_future_user_restrictions_create_auditable_exclusions():
