@@ -222,6 +222,23 @@ def test_locked_navigation_renders_without_link_and_with_accessible_reason():
     assert "Locked" in html
 
 
+def test_completed_setup_navigation_is_non_interactive():
+    navigation = build_primary_navigation(
+        organization=item(name="Organization"),
+        initiative=item(name="Initiative"),
+    )
+    template = app.jinja_env.get_template("_workflow_navigation.html")
+    with app.test_request_context("/workspace"):
+        html = template.module.render_workflow_navigation(
+            navigation,
+            "workspace",
+        )
+
+    assert "Organization Setup" in html
+    assert "state-complete" in html
+    assert 'href="/setup"' not in html
+
+
 def test_navigation_and_progress_markup_are_mobile_safe_and_centralized():
     base = app.jinja_loader.get_source(app.jinja_env, "base.html")[0]
     navigation = app.jinja_loader.get_source(

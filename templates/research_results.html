@@ -1,6 +1,9 @@
 {% extends "base.html" %}
 {% from "_workflow_guidance.html" import workflow_guidance %}
 {% block content %}
+{% if has_selectable_results is undefined %}
+  {% set has_selectable_results = results|length > saved_results|length %}
+{% endif %}
 <a href="{{ url_for('research_worker') }}">← Choose another asset</a>
 
 {% if assignment.status in ['ready', 'working'] %}
@@ -23,7 +26,7 @@
     'warning',
     'POST'
   ) }}
-{% elif results %}
+{% elif results and has_selectable_results %}
   {{ workflow_guidance(
     'Sponsor research is ready for review',
     'Your Research Worker completed research for ' ~ asset.name ~ '.',
@@ -33,6 +36,18 @@
     '#research-results-review',
     'btn-primary',
     'success'
+  ) }}
+{% elif results %}
+  {{ workflow_guidance(
+    'Sponsor selections saved',
+    'Every qualified sponsor from this assignment has been handled.',
+    'Your saved sponsors and Opportunities remain available in the Sponsor Pipeline.',
+    'Run this approved sponsorship opportunity again to look for additional sponsors.',
+    'Research More for This Asset',
+    url_for('start_asset_research', asset_id=asset.id),
+    'btn-primary',
+    'success',
+    'POST'
   ) }}
 {% else %}
   {{ workflow_guidance(
@@ -68,15 +83,16 @@
     {{ worker_status_copy('research').failure_message }}
   </p>
 </div>
-<form method="post" action="{{ url_for('start_asset_research', asset_id=asset.id) }}">
-  <button class="btn btn-gold" type="submit">{{ worker_status_copy('research').retry_action }}</button>
-</form>
 {% elif results %}
+{% if has_selectable_results %}
 <form
   id="research-results-review"
   method="post"
   action="{{ url_for('review_research_assignment', assignment_id=assignment.id) }}"
 >
+{% else %}
+<div id="research-results-review">
+{% endif %}
   <div class="row g-3">
     {% for result in results %}
     {% set saved = saved_results.get(loop.index0) %}
@@ -130,6 +146,7 @@
     </div>
     {% endfor %}
   </div>
+  {% if has_selectable_results %}
   <div class="d-flex flex-wrap gap-2 mt-4">
     <button class="btn btn-gold" type="submit" name="action" value="save_selected">
       Save Selected to Sponsor Pipeline
@@ -141,7 +158,12 @@
       Leave Results Unchanged
     </button>
   </div>
+  {% endif %}
+{% if has_selectable_results %}
 </form>
+{% else %}
+</div>
+{% endif %}
 {% else %}
 <div class="empty-state">
   <h2>No qualified results were returned.</h2>

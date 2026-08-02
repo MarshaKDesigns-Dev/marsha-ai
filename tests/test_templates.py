@@ -173,7 +173,7 @@ def test_workflow_pages_remove_confirmed_dead_end_and_duplicate_links():
     assert strategy.count("url_for('approve_strategy_work')") == 1
     assert 'url_for(\'workspace\') }}">Return to Dashboard' in pipeline
     assert 'url_for(\'home\') }}">Return to workspace' not in pipeline
-    assert "Research more for this asset" not in research
+    assert research.count("Research More for This Asset") == 1
     assert research.count("Choose another asset") == 1
 
 

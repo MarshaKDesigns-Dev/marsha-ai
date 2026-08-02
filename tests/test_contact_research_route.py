@@ -96,6 +96,33 @@ def test_opportunity_template_shows_contact_research_control_and_latest_status()
     assert "enqueue_contact_research" in template
 
 
+def test_opportunity_renders_one_contact_research_action_before_start():
+    opportunity = SimpleNamespace(
+        id=33, recommended_target="Example Sponsor",
+        parent_prospect="Example Sponsor", contact_name=None, email=None,
+        phone=None, contact_url=None, confidence="medium",
+        verified_date=None, why_this_contact="No reliable contact was found.",
+        stage="Research Approved", outreach=None, reviewed_message=None,
+        message_reviewed_at=None, message_approved_at=None,
+        follow_up_message=None, follow_up_completed_at=None,
+        outreach_channel="email", sent_date=None, delivery_mode=None,
+        delivery_recipient=None, follow_up_date=None,
+    )
+    with app_module.app.test_request_context("/opportunity/33"):
+        rendered = render_template(
+            "opportunity.html", opp=opportunity,
+            contact_research_job=None, outreach_generation_job=None,
+            follow_up_generation_job=None, stages=[], test_mode=True,
+            test_email="test@example.org", default_subject="",
+            display_message="", review_notes=None, follow_up_due=False,
+            follow_up_review_notes=None, opportunity_progress=[],
+        )
+
+    assert rendered.count("Research Contact") == 1
+    assert "Contact Research Needed" in rendered
+    assert "No reliable contact was found." in rendered
+
+
 def test_failed_contact_research_job_displays_failed():
     opportunity = SimpleNamespace(
         id=33,
@@ -215,6 +242,6 @@ def test_new_follow_up_cycle_hides_completed_cycle_actions():
         )
 
     assert "The next sponsor follow-up is due" in rendered
-    assert "Generate New Follow-Up" in rendered
+    assert rendered.count("Generate New Follow-Up") == 1
     assert "Regenerate Follow-Up" not in rendered
     assert "Complete Follow-Up" not in rendered

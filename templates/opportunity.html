@@ -251,19 +251,6 @@
         {% endif %}
         {% endif %}
       </div>
-      <form
-        method="post"
-        action="{{ url_for('enqueue_contact_research', opportunity_id=opp.id) }}"
-        class="mb-3"
-      >
-        <button
-          class="btn btn-outline-dark w-100"
-          {% if contact_research_job and contact_research_job.status in
-          ['queued', 'processing'] %}disabled{% endif %}
-        >
-          Research Contact
-        </button>
-      </form>
       {% endif %}
 
       <p>
@@ -640,14 +627,10 @@
       {% if follow_up_active %}
       <p>{{ background_work_helper }}</p>
       {% elif not opp.follow_up_message or opp.follow_up_completed_at %}
-      <form
-        method="post"
-        action="{{ url_for('generate_follow_up', opportunity_id=opp.id) }}"
-      >
-        <button class="btn btn-dark w-100">
-          {{ 'Generate New Follow-Up' if opp.follow_up_completed_at else 'Generate Follow-Up' }}
-        </button>
-      </form>
+      <p class="mb-0">
+        Use the primary action above to ask the Follow-Up Worker to prepare
+        {{ 'a new message for this cycle' if opp.follow_up_completed_at else 'the next message' }}.
+      </p>
       {% else %} {% if opp.follow_up_reviewed_at %}
       <div class="alert alert-success">
         <strong>Follow-up reviewed.</strong>

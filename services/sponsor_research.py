@@ -543,7 +543,16 @@ def validate_researched_prospects(
             )(),
         )
         if not eligibility_decision.allowed:
-            rejection_codes.append("prohibited_industry")
+            rejection_codes.append(
+                "eligibility_requirements_unresolved"
+                if eligibility_decision.reason_code
+                in {
+                    "audience_age_context_required",
+                    "eligibility_analysis_required",
+                    "eligibility_requirements_unresolved",
+                }
+                else "prohibited_industry"
+            )
 
         preference = None
         approved_need_match = None
@@ -652,6 +661,13 @@ def research_sponsor_category(
     diagnostics_sink: Callable[[dict[str, Any]], None] | None = None,
 ) -> list[SponsorProspectCandidate]:
     """Research and validate real prospects using OpenAI web search."""
+
+    eligibility_decision = evaluate_category_research(eligibility, category)
+    if not eligibility_decision.allowed:
+        raise SponsorResearchError(
+            eligibility_decision.reason
+            or "Sponsor research eligibility requirements are unresolved."
+        )
 
     if client is None and not os.getenv("OPENAI_API_KEY"):
         raise SponsorResearchUnavailableError(

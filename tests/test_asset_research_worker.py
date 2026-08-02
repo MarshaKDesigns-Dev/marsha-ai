@@ -4,12 +4,14 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 import pytest
+from flask import render_template
 
 import app as app_module
 from services.sponsor_eligibility import EligibilityFacts
 from services.sponsor_eligibility_engine import SponsorEligibilityEngine
 from services.sponsor_research import (
     NoCredibleProspectsError,
+    SponsorResearchError,
     SponsorResearchResult,
     research_sponsorship_asset,
 )
@@ -304,6 +306,11 @@ def test_asset_research_route_enqueues_without_running_ai(
     monkeypatch.setattr(
         app_module, "_approved_research_asset", lambda *args: asset
     )
+    monkeypatch.setattr(
+        app_module,
+        "get_sponsorship_intelligence",
+        lambda *args: SimpleNamespace(sponsor_eligibility=eligibility()),
+    )
     enqueue = MagicMock(return_value=(assignment, True))
     monkeypatch.setattr(assignment_service, "enqueue_assignment", enqueue)
     research = MagicMock()
@@ -323,6 +330,76 @@ def test_asset_research_route_enqueues_without_running_ai(
     assert assignment.error_details is None
     enqueue.assert_called_once_with(organization, initiative, asset)
     research.assert_not_called()
+
+
+def test_asset_research_route_does_not_enqueue_blocked_eligibility(
+    monkeypatch,
+):
+    import services.research_assignments as assignment_service
+
+    organization = SimpleNamespace(id=11)
+    initiative = SimpleNamespace(id=22, organization_id=11)
+    asset = SimpleNamespace(id=33, name="Scholarship Partner")
+    blocked = SponsorEligibilityEngine().evaluate(
+        EligibilityFacts(
+            mission="Support community leadership.",
+            location="Durham, NC",
+            initiative_name="Leadership Summit",
+            audience="Entrepreneurs, executives, and students.",
+        )
+    )
+    monkeypatch.setattr(
+        app_module, "get_active_organization", lambda: organization
+    )
+    monkeypatch.setattr(
+        app_module, "get_active_initiative", lambda: initiative
+    )
+    monkeypatch.setattr(
+        app_module, "_approved_research_asset", lambda *args: asset
+    )
+    monkeypatch.setattr(
+        app_module,
+        "get_sponsorship_intelligence",
+        lambda *args: SimpleNamespace(sponsor_eligibility=blocked),
+    )
+    enqueue = MagicMock()
+    monkeypatch.setattr(assignment_service, "enqueue_assignment", enqueue)
+
+    response = app_module.app.test_client().post("/research/assets/33")
+
+    assert response.status_code == 302
+    assert response.location.endswith("/research")
+    enqueue.assert_not_called()
+
+
+def test_blocked_asset_research_does_not_call_provider():
+    client = MagicMock()
+    blocked = SponsorEligibilityEngine().evaluate(
+        EligibilityFacts(
+            mission="Support community leadership.",
+            location="Durham, NC",
+            initiative_name="Leadership Summit",
+            audience="Women entrepreneurs, executives, and students.",
+        )
+    )
+
+    with pytest.raises(
+        SponsorResearchError,
+        match="audience age context is confirmed",
+    ):
+        research_sponsorship_asset(
+            SimpleNamespace(name="Alliance", mission="Leadership"),
+            SimpleNamespace(name="Summit", audience="Students"),
+            SimpleNamespace(
+                name="Named Participant Scholarship",
+                description="Fund participant scholarships.",
+                sponsor_value="Named recognition.",
+            ),
+            blocked,
+            client=client,
+        )
+
+    client.with_options.assert_not_called()
 
 
 def test_duplicate_result_selection_creates_one_asset_scoped_opportunity(
@@ -449,10 +526,68 @@ def test_research_templates_require_explicit_review_controls():
     assert "Saved from this assignment" in results
     assert "Already in Sponsor Pipeline" in results
     assert "Open Opportunity" in results
-    assert "Research more for this asset" not in results
+    assert "Research More for This Asset" in results
     assert results.count("Choose another asset") == 1
     assert "assignment.error_details" not in results
     assert "worker_status_copy('research').failure_message" in results
+    assert results.count("worker_status_copy('research').retry_action") == 1
+
+
+def _research_result():
+    return SimpleNamespace(
+        company_name="Example Sponsor",
+        confidence="high",
+        why_fits="Strong fit",
+        location="Durham, NC",
+        recommended_ask="Scholarship Partner",
+        evidence_sources=[],
+    )
+
+
+def test_research_results_switch_to_research_more_after_all_results_saved():
+    assignment = SimpleNamespace(id=44, status="completed")
+    asset = SimpleNamespace(id=33, name="Scholarship Partner")
+    with app_module.app.test_request_context("/research/assignments/44"):
+        rendered = render_template(
+            "research_results.html",
+            assignment=assignment,
+            asset=asset,
+            results=[_research_result()],
+            saved_results={
+                0: {
+                    "status": "saved_from_assignment",
+                    "opportunity_id": 9,
+                }
+            },
+            has_selectable_results=False,
+        )
+
+    assert "Sponsor research is ready for review" not in rendered
+    assert "Save Selected to Sponsor Pipeline" not in rendered
+    assert "Save All to Sponsor Pipeline" not in rendered
+    assert rendered.count("Research More for This Asset") == 1
+    assert 'action="/research/assets/33"' in rendered
+    assert 'method="post"' in rendered
+    assert 'href="/opportunity/9"' in rendered
+
+
+def test_research_results_keep_review_controls_for_selectable_results():
+    assignment = SimpleNamespace(id=44, status="completed")
+    asset = SimpleNamespace(id=33, name="Scholarship Partner")
+    with app_module.app.test_request_context("/research/assignments/44"):
+        rendered = render_template(
+            "research_results.html",
+            assignment=assignment,
+            asset=asset,
+            results=[_research_result()],
+            saved_results={},
+            has_selectable_results=True,
+        )
+
+    assert "Sponsor research is ready for review" in rendered
+    assert "Save Selected to Sponsor Pipeline" in rendered
+    assert "Save All to Sponsor Pipeline" in rendered
+    assert "Research More for This Asset" not in rendered
 
 
 def test_leave_results_unchanged_returns_to_research_selection(monkeypatch):

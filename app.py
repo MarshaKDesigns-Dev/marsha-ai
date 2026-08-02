@@ -2623,6 +2623,15 @@ def start_asset_research(asset_id):
         )
         return redirect(url_for("research_worker"))
 
+    intelligence = get_sponsorship_intelligence(organization, initiative)
+    eligibility_decision = evaluate_category_research(
+        getattr(intelligence, "sponsor_eligibility", None),
+        asset,
+    )
+    if not eligibility_decision.allowed:
+        flash(eligibility_decision.reason, "warning")
+        return redirect(url_for("research_worker"))
+
     from services.research_assignments import enqueue_assignment
 
     assignment, created = enqueue_assignment(
@@ -2713,6 +2722,7 @@ def research_assignment(assignment_id):
         asset=asset,
         results=assignment.results,
         saved_results=saved_results,
+        has_selectable_results=len(saved_results) < len(assignment.results),
     )
 
 

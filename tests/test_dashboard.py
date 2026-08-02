@@ -84,13 +84,14 @@ def opportunity(
     outreach_generation_job=None,
     follow_up_generation_job=None,
     contact_research_job=None,
+    recommended_target="Example Sponsor",
 ):
     return SimpleNamespace(
         id=identifier,
         stage=stage,
         follow_up_date=follow_up_date,
-        recommended_target="Example Sponsor",
-        parent_prospect="Example Sponsor",
+        recommended_target=recommended_target,
+        parent_prospect=recommended_target,
         updated_at=updated_at or NOW,
         created_at=created_at or NOW,
         sponsorship_asset_id=asset_id,
@@ -912,6 +913,95 @@ def test_contact_research_progress_and_failure_link_to_exact_opportunity():
     assert "existing contact information were preserved" in (
         failed.top_priority.message
     )
+
+
+@pytest.mark.parametrize("closed_stage", ["Lost", "Won"])
+def test_closed_contact_failure_is_excluded_from_active_dashboard(closed_stage):
+    closed = opportunity(
+        identifier=41,
+        stage=closed_stage,
+        contact_research_job=SimpleNamespace(status="failed"),
+        recommended_target="Closed Sponsor",
+    )
+
+    dashboard = build(opportunities=[closed])
+
+    assert dashboard.top_priority.action.route_params != {"opportunity_id": 41}
+    assert all(
+        item.action.route_params.get("opportunity_id") != 41
+        for item in dashboard.needs_attention
+    )
+    assert all("Closed Sponsor" not in worker.message for worker in dashboard.ai_team)
+    assert all("Closed Sponsor" not in link.label for link in dashboard.continue_links)
+
+
+def test_open_contact_failure_remains_actionable_and_record_specific():
+    dashboard = build(opportunities=[opportunity(
+        identifier=42,
+        stage="Research Approved",
+        contact_research_job=SimpleNamespace(status="failed"),
+        recommended_target="Open Sponsor",
+    )])
+
+    assert dashboard.top_priority.action.label == "Try Contact Discovery Again"
+    assert dashboard.top_priority.action.route_params == {"opportunity_id": 42}
+    assert dashboard.top_priority.supporting_line == (
+        "Sponsor Opportunity: Open Sponsor"
+    )
+
+
+def test_open_action_outranks_closed_failure_and_matches_ai_team():
+    closed = opportunity(
+        identifier=41,
+        stage="Lost",
+        contact_research_job=SimpleNamespace(status="failed"),
+        recommended_target="Closed Sponsor",
+        created_at=NOW - timedelta(days=2),
+    )
+    active = opportunity(
+        identifier=42,
+        stage="Research Approved",
+        email="contact@active.example",
+        recommended_target="Active Sponsor",
+    )
+
+    dashboard = build(opportunities=[closed, active])
+    outreach_worker = next(
+        worker for worker in dashboard.ai_team
+        if worker.name == "Outreach Worker"
+    )
+
+    assert dashboard.top_priority.action.label == "Generate Outreach"
+    assert dashboard.top_priority.action.route_params == {"opportunity_id": 42}
+    assert dashboard.top_priority.supporting_line == (
+        "Sponsor Opportunity: Active Sponsor"
+    )
+    assert outreach_worker.detail == "Active Sponsor"
+    assert "Closed Sponsor" not in outreach_worker.message
+    assert any(
+        item.action.route_params == {"opportunity_id": 41}
+        for item in dashboard.recent_activity
+    )
+
+
+def test_all_active_job_types_on_closed_opportunity_are_not_resumable():
+    closed = opportunity(
+        identifier=43,
+        stage="Won",
+        contact_research_job=SimpleNamespace(status="processing"),
+        outreach_generation_job=SimpleNamespace(status="working"),
+        follow_up_generation_job=SimpleNamespace(status="queued"),
+        recommended_target="Completed Sponsor",
+    )
+
+    dashboard = build(opportunities=[closed])
+
+    assert dashboard.top_priority.action.route_params != {"opportunity_id": 43}
+    assert all(
+        item.action.route_params.get("opportunity_id") != 43
+        for item in dashboard.needs_attention
+    )
+    assert all("Completed Sponsor" not in worker.message for worker in dashboard.ai_team)
 
 
 def test_outreach_worker_states_resume_exact_opportunity():

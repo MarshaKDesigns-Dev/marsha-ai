@@ -442,6 +442,13 @@ def _opportunity_name(opportunity: Any) -> str:
     )
 
 
+def _is_open_opportunity(opportunity: Any) -> bool:
+    return (getattr(opportunity, "stage", "") or "").strip().lower() not in {
+        "won",
+        "lost",
+    }
+
+
 def _outreach_is_available(opportunity: Any) -> bool:
     return bool(
         getattr(opportunity, "stage", None) == "Research Approved"
@@ -583,6 +590,8 @@ def _mission_control_attention(
             )
     due_ids = {getattr(item, "id", None) for item in overdue_follow_ups}
     for opportunity in opportunities:
+        if not _is_open_opportunity(opportunity):
+            continue
         target = (
             getattr(opportunity, "recommended_target", None)
             or getattr(opportunity, "parent_prospect", None)
@@ -1364,7 +1373,10 @@ def _top_priority(
             DashboardAction("Continue Strategy Review", "strategy_work"),
         )
 
-    opportunity_list = sorted(opportunities, key=_waiting_key)
+    opportunity_list = sorted(
+        [item for item in opportunities if _is_open_opportunity(item)],
+        key=_waiting_key,
+    )
     assignment_list = _latest_assignments_by_asset(assignments)
 
     def job_state(item, attribute):
@@ -1672,6 +1684,11 @@ def build_dashboard(
     prospect_list = list(prospects)
     asset_list = list(assets)
     opportunity_list = list(opportunities)
+    active_opportunity_list = [
+        opportunity
+        for opportunity in opportunity_list
+        if _is_open_opportunity(opportunity)
+    ]
     assignment_list = list(research_assignments)
     eligibility = (
         getattr(intelligence, "sponsor_eligibility", None)
@@ -1680,12 +1697,12 @@ def build_dashboard(
     )
     overdue_follow_ups = [
         opportunity
-        for opportunity in opportunity_list
+        for opportunity in active_opportunity_list
         if _is_overdue_follow_up(opportunity, today)
     ]
     outreach_waiting = [
         opportunity
-        for opportunity in opportunity_list
+        for opportunity in active_opportunity_list
         if getattr(opportunity, "stage", None) == "Ready to Send"
         and bool(
             getattr(opportunity, "outreach", None)
@@ -1710,7 +1727,7 @@ def build_dashboard(
     ]
     outreach_available = [
         opportunity
-        for opportunity in opportunity_list
+        for opportunity in active_opportunity_list
         if _outreach_is_available(opportunity)
     ]
     sponsors_secured = sum(
@@ -2066,13 +2083,13 @@ def build_dashboard(
             "Current task",
             "Keep sponsor conversations moving",
         )
-    elif opportunity_list:
+    elif active_opportunity_list:
         pipeline_worker = DashboardWorker(
             "Pipeline Worker",
             "Monitoring",
             (
-                f"I'm monitoring {len(opportunity_list)} active Sponsor Pipeline "
-                f"opportunit{'y' if len(opportunity_list) == 1 else 'ies'}."
+                f"I'm monitoring {len(active_opportunity_list)} active Sponsor Pipeline "
+                f"opportunit{'y' if len(active_opportunity_list) == 1 else 'ies'}."
             ),
             DashboardAction("Open Sponsor Pipeline", "show_pipeline"),
             "Current task",
@@ -2173,7 +2190,7 @@ def build_dashboard(
         research_worker=workers[1],
         outreach_worker=workers[2],
         strategy_ready=strategy_ready,
-        opportunities=opportunity_list,
+        opportunities=active_opportunity_list,
         overdue_follow_ups=overdue_follow_ups,
     )
     continue_labels = {
