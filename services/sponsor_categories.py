@@ -87,6 +87,16 @@ class SponsorCategoryRecommendation(BaseModel):
         ),
     )
 
+    @field_validator("slug", mode="before")
+    @classmethod
+    def normalize_slug(cls, value: Any) -> Any:
+        """Normalize recoverable provider casing before strict validation."""
+
+        if isinstance(value, str):
+            return value.strip().lower()
+
+        return value
+
     @field_validator("slug")
     @classmethod
     def validate_slug(cls, value: str) -> str:

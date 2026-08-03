@@ -155,6 +155,76 @@ def category_set():
     )
 
 
+def category_payload(slug):
+    return {
+        "slug": slug,
+        "category": "SaaS and Integration Platforms",
+        "fit": "Software platforms align directly with practical AI adoption.",
+        "score": 92,
+        "priority": 1,
+        "ideal_sponsor_profile": "Established SaaS providers serving small organizations.",
+        "research_direction": "Research platforms with integration and nonprofit programs.",
+    }
+
+
+def test_mixed_case_slug_normalizes_before_validation():
+    category = SponsorCategoryRecommendation.model_validate(
+        category_payload("  saaS-and-integration-platforms  ")
+    )
+
+    assert category.slug == "saas-and-integration-platforms"
+
+
+def test_lowercase_slug_remains_unchanged():
+    category = SponsorCategoryRecommendation.model_validate(
+        category_payload("saas-and-integration-platforms")
+    )
+
+    assert category.slug == "saas-and-integration-platforms"
+
+
+@pytest.mark.parametrize(
+    "slug",
+    (
+        "saas--platforms",
+        "-saas-platforms",
+        "saas-platforms-",
+        "saas platforms",
+        "saas_platforms",
+        "saas.platforms",
+        "",
+        "   ",
+    ),
+)
+def test_structurally_invalid_slugs_still_fail(slug):
+    with pytest.raises(ValueError):
+        SponsorCategoryRecommendation.model_validate(category_payload(slug))
+
+
+def test_generated_category_output_preserves_normalized_slug(
+    organization,
+    initiative,
+    analysis,
+    strategy,
+    category_set,
+):
+    payload = category_set.model_dump()
+    payload["categories"][0]["slug"] = "Financial-Institutions"
+
+    result = generate_sponsor_categories(
+        organization,
+        initiative,
+        analysis,
+        strategy,
+        client=FakeClient(parsed=payload),
+    )
+
+    assert result.categories[0].slug == "financial-institutions"
+    assert result.model_dump()["categories"][0]["slug"] == (
+        "financial-institutions"
+    )
+
+
 def test_build_prompt_contains_context(
     organization,
     initiative,
