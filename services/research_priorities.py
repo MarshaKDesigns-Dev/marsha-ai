@@ -537,6 +537,8 @@ def _bind_validated_references(
     result: ResearchPrioritySet,
     categories: SponsorCategorySet,
     assets: SponsorshipAssetSet,
+    *,
+    corrective_asset_names_by_category: dict[str, list[str]] | None = None,
 ) -> ResearchPrioritySet:
     """Bind AI narrative output to application-owned category and asset keys."""
 
@@ -561,6 +563,18 @@ def _bind_validated_references(
         slug
         for slug, asset_names in asset_names_by_category.items()
         if not asset_names
+    ]
+    corrective_asset_names_by_category = (
+        corrective_asset_names_by_category or {}
+    )
+    for slug in missing_asset_categories:
+        asset_names_by_category[slug] = (
+            corrective_asset_names_by_category.get(slug, [])
+        )
+    missing_asset_categories = [
+        slug
+        for slug in missing_asset_categories
+        if not asset_names_by_category[slug]
     ]
     if missing_asset_categories:
         raise ResearchPriorityGenerationError(
@@ -644,6 +658,125 @@ def _bind_validated_references(
     )
 
 
+def _build_corrective_prompt(
+    prompt: str,
+    missing_category_slugs: list[str],
+    categories: SponsorCategorySet,
+    assets: SponsorshipAssetSet,
+) -> str:
+    """Add one bounded category/asset coverage correction to the prompt."""
+
+    allowed_categories = "\n".join(
+        f"- {category.slug}"
+        for category in categories.categories
+    )
+    allowed_assets = "\n".join(
+        (
+            f"- ID: generated-asset-{index}; Name: {asset.name}"
+        )
+        for index, asset in enumerate(assets.assets, start=1)
+    )
+    missing_categories = "\n".join(
+        f"- {slug}"
+        for slug in missing_category_slugs
+    )
+
+    return f"""
+{prompt}
+
+CORRECTIVE REQUIREMENT
+
+The previous Research Priorities response could not be bound because these
+validated sponsor categories did not reference any allowed sponsorship asset:
+
+{missing_categories}
+
+Complete allowed sponsor-category slugs:
+
+{allowed_categories}
+
+Complete allowed sponsorship-asset references:
+
+{allowed_assets}
+
+Return one priority for every allowed sponsor category. Every priority must
+reference at least one allowed sponsorship asset by copying its Name exactly.
+The missing categories listed above must each reference at least one allowed
+asset. Do not invent, rename, omit, or add sponsor categories or sponsorship
+assets. Use only the category slugs and asset names listed above.
+""".strip()
+
+
+def _corrective_asset_names(
+    result: ResearchPriorityDraftSet | ResearchPrioritySet,
+    missing_category_slugs: list[str],
+    categories: SponsorCategorySet,
+    assets: SponsorshipAssetSet,
+) -> dict[str, list[str]]:
+    """Validate and return corrected asset references for missing categories."""
+
+    allowed_category_slugs = {
+        category.slug
+        for category in categories.categories
+    }
+    received_category_slugs = [
+        item.category_slug
+        for item in result.priorities
+    ]
+    if (
+        len(received_category_slugs) != len(allowed_category_slugs)
+        or set(received_category_slugs) != allowed_category_slugs
+    ):
+        raise ResearchPriorityGenerationError(
+            "Corrected research priorities must use every allowed sponsor "
+            "category exactly once.",
+            validation_details={
+                "expected_category_slugs": sorted(allowed_category_slugs),
+                "received_category_slugs": sorted(received_category_slugs),
+            },
+        )
+
+    allowed_asset_names = {
+        asset.name
+        for asset in assets.assets
+    }
+    corrected_by_slug = {}
+    for item in result.priorities:
+        unknown_asset_names = sorted(
+            set(item.recommended_asset_names) - allowed_asset_names
+        )
+        if unknown_asset_names:
+            raise ResearchPriorityGenerationError(
+                "Corrected research priorities referenced unknown "
+                "sponsorship assets.",
+                validation_details={
+                    "category_slug": item.category_slug,
+                    "unknown_asset_names": unknown_asset_names,
+                    "allowed_asset_names": sorted(allowed_asset_names),
+                },
+            )
+        if item.category_slug in missing_category_slugs:
+            corrected_by_slug[item.category_slug] = (
+                item.recommended_asset_names
+            )
+
+    still_missing = [
+        slug
+        for slug in missing_category_slugs
+        if not corrected_by_slug.get(slug)
+    ]
+    if still_missing:
+        raise ResearchPriorityGenerationError(
+            "Corrected research priorities still omitted required "
+            "category and asset associations.",
+            validation_details={
+                "categories_without_assets": still_missing,
+            },
+        )
+
+    return corrected_by_slug
+
+
 def _validate_cross_references(
     result: ResearchPrioritySet,
     categories: SponsorCategorySet,
@@ -718,8 +851,8 @@ def generate_research_priorities(
     openai_client = client or OpenAI()
     selected_model = model or DEFAULT_MODEL
 
-    try:
-        response = parse_with_timeout(
+    def request_priorities(request_prompt: str):
+        return parse_with_timeout(
             client=openai_client,
             generation_step="research_priorities",
             organization=organization,
@@ -728,40 +861,30 @@ def generate_research_priorities(
             workflow_started_at=workflow_started_at,
             model=selected_model,
             instructions=SYSTEM_INSTRUCTIONS,
-            input=prompt,
+            input=request_prompt,
             text_format=ResearchPriorityDraftSet,
         )
-    except GenerationStepTimeoutError:
-        raise
-    except Exception as exc:
-        raise ResearchPriorityGenerationError(
-            "The research priority request could not be completed.",
-            validation_details={
-                "cause_type": type(exc).__name__,
-            },
-        ) from exc
 
-    parsed_result = getattr(
-        response,
-        "output_parsed",
-        None,
-    )
-
-    if parsed_result is None:
-        raise ResearchPriorityGenerationError(
-            "OpenAI returned no structured research priorities."
+    def parsed_priorities(response):
+        parsed_result = getattr(
+            response,
+            "output_parsed",
+            None,
         )
 
-    if isinstance(
-        parsed_result,
-        (ResearchPrioritySet, ResearchPriorityDraftSet),
-    ):
-        result = parsed_result
-    else:
-        try:
-            result = ResearchPriorityDraftSet.model_validate(
-                parsed_result
+        if parsed_result is None:
+            raise ResearchPriorityGenerationError(
+                "OpenAI returned no structured research priorities."
             )
+
+        if isinstance(
+            parsed_result,
+            (ResearchPrioritySet, ResearchPriorityDraftSet),
+        ):
+            return parsed_result
+
+        try:
+            return ResearchPriorityDraftSet.model_validate(parsed_result)
         except ValidationError as exc:
             raise ResearchPriorityGenerationError(
                 "OpenAI returned invalid research priorities.",
@@ -773,11 +896,67 @@ def generate_research_priorities(
                 },
             ) from exc
 
-    result = _bind_validated_references(
-        result,
-        categories,
-        assets,
-    )
-    _validate_cross_references(result, categories, assets)
+    try:
+        response = request_priorities(prompt)
+    except GenerationStepTimeoutError:
+        raise
+    except Exception as exc:
+        raise ResearchPriorityGenerationError(
+            "The research priority request could not be completed.",
+            validation_details={
+                "cause_type": type(exc).__name__,
+            },
+        ) from exc
+
+    result = parsed_priorities(response)
+
+    try:
+        result = _bind_validated_references(
+            result,
+            categories,
+            assets,
+        )
+        _validate_cross_references(result, categories, assets)
+    except ResearchPriorityGenerationError as exc:
+        missing_category_slugs = exc.validation_details.get(
+            "categories_without_assets"
+        )
+        if not missing_category_slugs:
+            raise
+
+        corrective_prompt = _build_corrective_prompt(
+            prompt,
+            missing_category_slugs,
+            categories,
+            assets,
+        )
+        try:
+            corrective_response = request_priorities(corrective_prompt)
+        except GenerationStepTimeoutError:
+            raise
+        except Exception as retry_exc:
+            raise ResearchPriorityGenerationError(
+                "The corrective research priority request could not be "
+                "completed.",
+                validation_details={
+                    "cause_type": type(retry_exc).__name__,
+                    "categories_without_assets": missing_category_slugs,
+                },
+            ) from retry_exc
+
+        corrective_result = parsed_priorities(corrective_response)
+        corrective_asset_names = _corrective_asset_names(
+            corrective_result,
+            missing_category_slugs,
+            categories,
+            assets,
+        )
+        result = _bind_validated_references(
+            corrective_result,
+            categories,
+            assets,
+            corrective_asset_names_by_category=corrective_asset_names,
+        )
+        _validate_cross_references(result, categories, assets)
 
     return result

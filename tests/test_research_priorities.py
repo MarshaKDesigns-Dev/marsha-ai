@@ -38,12 +38,17 @@ class FakeResponsesAPI:
         self._parsed = parsed
         self._error = error
         self.last_kwargs = None
+        self.calls = []
 
     def parse(self, **kwargs):
         self.last_kwargs = kwargs
+        self.calls.append(kwargs)
 
         if self._error:
             raise self._error
+
+        if isinstance(self._parsed, list):
+            return FakeResponse(self._parsed[len(self.calls) - 1])
 
         return FakeResponse(self._parsed)
 
@@ -499,6 +504,151 @@ def test_generate_returns_model(
         "timeout": 90.0,
         "max_retries": 0,
     }
+
+
+def _assets_missing_utilities(assets):
+    return assets.model_copy(
+        update={
+            "assets": [
+                asset.model_copy(
+                    update={
+                        "recommended_for_categories": [
+                            "financial-institutions"
+                        ]
+                    }
+                )
+                if asset.name == "Community Recognition"
+                else asset
+                for asset in assets.assets
+            ]
+        }
+    )
+
+
+def test_missing_category_asset_coverage_gets_one_corrective_retry(
+    organization,
+    initiative,
+    analysis,
+    strategy,
+    categories,
+    assets,
+    research,
+):
+    incomplete_assets = _assets_missing_utilities(assets)
+    client = FakeClient(parsed=[research, research])
+
+    result = generate_research_priorities(
+        organization,
+        initiative,
+        analysis,
+        strategy,
+        categories,
+        incomplete_assets,
+        client=client,
+    )
+
+    assert len(client.responses.calls) == 2
+    corrective_prompt = client.responses.calls[1]["input"]
+    assert "CORRECTIVE REQUIREMENT" in corrective_prompt
+    assert "utilities" in corrective_prompt
+    for category in categories.categories:
+        assert category.slug in corrective_prompt
+    for index, asset in enumerate(incomplete_assets.assets, start=1):
+        assert f"ID: generated-asset-{index}; Name: {asset.name}" in (
+            corrective_prompt
+        )
+    assert "Do not invent, rename, omit, or add" in corrective_prompt
+    assert result.priorities[-1].category_slug == "utilities"
+    assert result.priorities[-1].recommended_asset_names == [
+        "Community Recognition"
+    ]
+
+
+@pytest.mark.parametrize(
+    ("corrected_category_slug", "corrected_asset_name", "error_match"),
+    [
+        ("invented-category", "Community Recognition", "every allowed"),
+        ("utilities", "Invented Asset", "unknown sponsorship assets"),
+    ],
+)
+def test_corrective_retry_rejects_invented_references(
+    corrected_category_slug,
+    corrected_asset_name,
+    error_match,
+    organization,
+    initiative,
+    analysis,
+    strategy,
+    categories,
+    assets,
+    research,
+):
+    incomplete_assets = _assets_missing_utilities(assets)
+    corrected = ResearchPriorityDraftSet(
+        priorities=[
+            item.model_copy(
+                update={
+                    "category_slug": (
+                        corrected_category_slug
+                        if item.category_slug == "utilities"
+                        else item.category_slug
+                    ),
+                    "recommended_asset_names": (
+                        [corrected_asset_name]
+                        if item.category_slug == "utilities"
+                        else item.recommended_asset_names
+                    ),
+                }
+            )
+            for item in research.priorities
+        ]
+    )
+    client = FakeClient(parsed=[research, corrected])
+
+    with pytest.raises(ResearchPriorityGenerationError, match=error_match):
+        generate_research_priorities(
+            organization,
+            initiative,
+            analysis,
+            strategy,
+            categories,
+            incomplete_assets,
+            client=client,
+        )
+
+    assert len(client.responses.calls) == 2
+
+
+def test_second_missing_category_response_fails_without_a_third_request(
+    organization,
+    initiative,
+    analysis,
+    strategy,
+    categories,
+    assets,
+    research,
+):
+    incomplete_assets = _assets_missing_utilities(assets)
+    corrected = ResearchPriorityDraftSet(
+        priorities=research.priorities[:-1]
+    )
+    client = FakeClient(parsed=[research, corrected])
+
+    with pytest.raises(
+        ResearchPriorityGenerationError,
+        match="every allowed sponsor category exactly once",
+    ):
+        generate_research_priorities(
+            organization,
+            initiative,
+            analysis,
+            strategy,
+            categories,
+            incomplete_assets,
+            client=client,
+        )
+
+    assert len(client.responses.calls) == 2
 
 
 def test_generation_binds_model_references_to_validated_inputs(
